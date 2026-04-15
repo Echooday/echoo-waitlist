@@ -125,10 +125,12 @@ function ShowcaseMarquee() {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const baseSlides =
     leftMockupFiles.length > 0
-      ? leftMockupFiles.map((file) => ({
-          image: file.image,
-          imageAlt: leftMockupAlt(file.fileName),
-        }))
+      ? leftMockupFiles
+          .filter((file) => !/social/i.test(file.fileName))
+          .map((file) => ({
+            image: file.image,
+            imageAlt: leftMockupAlt(file.fileName),
+          }))
       : [...SHOWCASE_FALLBACK_SLIDES];
 
   const slideCount = baseSlides.length;
@@ -537,7 +539,7 @@ function LandingPage() {
                       <span>Joining…</span>
                     </span>
                   ) : (
-                    "Join/See your stats"
+                    "Join/See stats"
                   )}
                 </button>
                 {message ? <p className="status-message">{message}</p> : null}
