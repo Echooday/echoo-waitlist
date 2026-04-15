@@ -255,7 +255,7 @@ body {
   margin: 0;
   font-family: "Oi";
   font-weight: 400;
-  font-size: clamp(1.52rem, 3.2vw, 1.92rem);
+  font-size: clamp(1.85rem, 3.8vw, 2.3rem);
   letter-spacing: 0;
   line-height: 1.1;
   color: var(--text-main);
