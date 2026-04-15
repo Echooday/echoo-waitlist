@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Echoo flower icon">
+  <rect width="128" height="128" rx="24" fill="#f6efe3" />
+  <g transform="translate(64 66)">
+    <text
+      x="0"
+      y="0"
+      text-anchor="middle"
+      dominant-baseline="middle"
+      font-size="98"
+      font-family="Georgia, serif"
+      fill="#ff6f00"
+    >
+      ✿
+    </text>
+    <text
+      x="0"
+      y="0"
+      text-anchor="middle"
+      dominant-baseline="middle"
+      font-size="70"
+      font-family="Georgia, serif"
+      fill="#ffca28"
+    >
+      ✿
+    </text>
+  </g>
+</svg>
