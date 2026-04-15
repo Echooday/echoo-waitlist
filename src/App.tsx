@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ImgHTMLAttributes,
 } from "react";
 import leftMockupFiles from "virtual:left-mockups";
 import {
@@ -21,8 +22,6 @@ import {
   setAnalyticsConsentWeb,
   ANALYTICS_CONSENT_STORAGE_KEY,
 } from "./analytics";
-
-const ECHOO_FLOWER_MEADOW_SRC = "/echoo-flower-meadow.svg";
 import { PostHogPageviews } from "./posthog-pageviews";
 import { FeatureRequestsPage } from "./modules/feature-requests";
 import { ReferralPersonalDashboard } from "./referral-components";
@@ -38,6 +37,18 @@ import {
   persistWaitlistSession,
   readWaitlistSession,
 } from "./waitlist-session";
+
+/** Raster assets under `public/flower-meadow/` (generated from `src/assets/flower_meadow.png`). */
+const FLOWER_LOGO_IMG_PROPS: ImgHTMLAttributes<HTMLImageElement> = {
+  src: "/flower-meadow/logo-128w.png",
+  srcSet:
+    "/flower-meadow/logo-64w.png 64w, /flower-meadow/logo-128w.png 128w, /flower-meadow/logo-256w.png 256w",
+  sizes: "(max-width: 860px) 6rem, 3.5rem",
+  alt: "",
+  width: 256,
+  height: 256,
+  decoding: "async",
+};
 
 type JoinWaitlistRow = {
   waitlist_position: number | null;
@@ -503,13 +514,7 @@ function LandingPage() {
               <h1 className="logo">
                 ECH
                 <span className="logo-flower" aria-hidden="true">
-                  <img
-                    src={ECHOO_FLOWER_MEADOW_SRC}
-                    alt=""
-                    width={128}
-                    height={128}
-                    decoding="async"
-                  />
+                  <img {...FLOWER_LOGO_IMG_PROPS} />
                 </span>
                 O
               </h1>
@@ -762,13 +767,7 @@ function ConfirmWaitlistPage() {
               <h1 className="logo">
                 ECH
                 <span className="logo-flower" aria-hidden="true">
-                  <img
-                    src={ECHOO_FLOWER_MEADOW_SRC}
-                    alt=""
-                    width={150}
-                    height={150}
-                    decoding="async"
-                  />
+                  <img {...FLOWER_LOGO_IMG_PROPS} />
                 </span>
                 O
               </h1>

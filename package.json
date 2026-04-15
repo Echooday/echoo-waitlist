@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "secrets:scan:staged": "node scripts/secret-scan.mjs --staged",
     "secrets:scan:all": "node scripts/secret-scan.mjs --all",
-    "hooks:install": "cp .githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit"
+    "hooks:install": "cp .githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
+    "icons:flower": "bash scripts/generate-flower-icons.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
