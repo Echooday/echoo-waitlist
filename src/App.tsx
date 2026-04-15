@@ -495,9 +495,9 @@ function LandingPage() {
         </div>
       )}
       <main className="page">
-        <section className="page-section page-section--hero" id="join">
-          <div className="page-section__inner">
-            <header className="brand">
+        <section className="page-section page-section--hero landing-hero" id="join">
+          <div className="page-section__inner landing-hero__inner">
+            <header className="brand landing-hero__brand">
               <h1 className="logo">
                 ECH
                 <span className="logo-flower" aria-hidden="true">
@@ -509,114 +509,116 @@ function LandingPage() {
               <div className="divider"></div>
             </header>
 
-            <section className="hero-text">
-              <h2>Your day, your voice, your echoo.</h2>
-              <p>Early access · voice-first journal · pro for free for up to 24 months</p>
-            </section>
+            <div className="landing-hero__center">
+              <section className="hero-text">
+                <h2>Your day, your voice, your echoo.</h2>
+                <p>Early access · voice-first journal · pro for free for up to 24 months</p>
+              </section>
 
-            {!submitted ? (
-              <form onSubmit={handleSubmit} className="minimal-form">
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setEmail(next);
-                    if (!signupStartedRef.current && next.trim().length > 0) {
-                      signupStartedRef.current = true;
-                      track("funnel_signup_started", {
-                        source: "landing",
-                      });
-                    }
-                  }}
-                  required
-                />
-                <button type="submit" disabled={loading}>
-                  {loading ? (
-                    <span className="btn-loading-content">
-                      <span className="ui-spinner ui-spinner--btn" aria-hidden />
-                      <span>Joining…</span>
-                    </span>
-                  ) : (
-                    "Join/See stats"
-                  )}
-                </button>
-                {message ? <p className="status-message">{message}</p> : null}
-              </form>
-            ) : (
-              <div className="fade-in">
-                <div className="success">
-                  <p>
-                    {needsConfirmation
-                      ? "Check your inbox to confirm."
-                      : "You're on the list."}
-                  </p>
-                  {!needsConfirmation && waitlistPosition && !confirmedOnList ? (
-                    <p className="waitlist-position">
-                      <strong>#{waitlistPosition}</strong>
+              {!submitted ? (
+                <form onSubmit={handleSubmit} className="minimal-form">
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setEmail(next);
+                      if (!signupStartedRef.current && next.trim().length > 0) {
+                        signupStartedRef.current = true;
+                        track("funnel_signup_started", {
+                          source: "landing",
+                        });
+                      }
+                    }}
+                    required
+                  />
+                  <button type="submit" disabled={loading}>
+                    {loading ? (
+                      <span className="btn-loading-content">
+                        <span className="ui-spinner ui-spinner--btn" aria-hidden />
+                        <span>Joining…</span>
+                      </span>
+                    ) : (
+                      "Join/See stats"
+                    )}
+                  </button>
+                  {message ? <p className="status-message">{message}</p> : null}
+                </form>
+              ) : (
+                <div className="fade-in">
+                  <div className="success">
+                    <p>
+                      {needsConfirmation
+                        ? "Check your inbox to confirm."
+                        : "You're on the list."}
                     </p>
+                    {!needsConfirmation && waitlistPosition && !confirmedOnList ? (
+                      <p className="waitlist-position">
+                        <strong>#{waitlistPosition}</strong>
+                      </p>
+                    ) : null}
+                  </div>
+                  {needsConfirmation ? (
+                    <>
+                      <div className="waitlist-confirmation-actions">
+                        <button
+                          type="button"
+                          onClick={handleResend}
+                          disabled={resendLoading || resendCooldownSeconds > 0}
+                          className="resend-text-link"
+                          aria-label={
+                            resendCooldownSeconds > 0
+                              ? `Resend available in ${resendCooldownSeconds} seconds`
+                              : "Resend confirmation email"
+                          }
+                        >
+                          {resendLoading ? (
+                            <>
+                              <span className="ui-spinner ui-spinner--btn" aria-hidden />
+                              <span>Sending…</span>
+                            </>
+                          ) : resendCooldownSeconds > 0 ? (
+                            `${resendCooldownSeconds}s`
+                          ) : (
+                            "Resend"
+                          )}
+                        </button>
+                        <span className="waitlist-confirmation-actions__sep" aria-hidden>
+                          ·
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleBackToEmailForm}
+                          className="resend-text-link"
+                        >
+                          Change email
+                        </button>
+                      </div>
+                      {resendMessage ? <p className="status-message">{resendMessage}</p> : null}
+                    </>
                   ) : null}
                 </div>
-                {needsConfirmation ? (
-                  <>
-                    <div className="waitlist-confirmation-actions">
-                      <button
-                        type="button"
-                        onClick={handleResend}
-                        disabled={resendLoading || resendCooldownSeconds > 0}
-                        className="resend-text-link"
-                        aria-label={
-                          resendCooldownSeconds > 0
-                            ? `Resend available in ${resendCooldownSeconds} seconds`
-                            : "Resend confirmation email"
-                        }
-                      >
-                        {resendLoading ? (
-                          <>
-                            <span className="ui-spinner ui-spinner--btn" aria-hidden />
-                            <span>Sending…</span>
-                          </>
-                        ) : resendCooldownSeconds > 0 ? (
-                          `${resendCooldownSeconds}s`
-                        ) : (
-                          "Resend"
-                        )}
-                      </button>
-                      <span className="waitlist-confirmation-actions__sep" aria-hidden>
-                        ·
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleBackToEmailForm}
-                        className="resend-text-link"
-                      >
-                        Change email
-                      </button>
-                    </div>
-                    {resendMessage ? <p className="status-message">{resendMessage}</p> : null}
-                  </>
-                ) : null}
+              )}
+
+              {submitted && confirmationEmail && !needsConfirmation ? (
+                <ReferralPersonalDashboard
+                  supabase={supabase}
+                  emailGuess={confirmationEmail}
+                  referralCodeOverride={referralCode}
+                  onResetLanding={resetLandingFromStats}
+                />
+              ) : null}
+
+              <div className="landing-links-row">
+                <Link
+                  to="/feature-requests"
+                  className="feature-request-link"
+                  onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
+                >
+                  Features
+                </Link>
               </div>
-            )}
-
-            {submitted && confirmationEmail && !needsConfirmation ? (
-              <ReferralPersonalDashboard
-                supabase={supabase}
-                emailGuess={confirmationEmail}
-                referralCodeOverride={referralCode}
-                onResetLanding={resetLandingFromStats}
-              />
-            ) : null}
-
-            <div className="landing-links-row">
-              <Link
-                to="/feature-requests"
-                className="feature-request-link"
-                onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
-              >
-                Features
-              </Link>
             </div>
           </div>
         </section>

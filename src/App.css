@@ -1039,6 +1039,9 @@ body {
   border: none;
   background: transparent;
   cursor: default;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .showcase-track {
@@ -1082,6 +1085,9 @@ body {
   flex: 0 0 auto;
   border: none;
   background: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .showcase-mockup {
@@ -1093,6 +1099,8 @@ body {
   box-shadow: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: none;
 }
 
 @keyframes showcase-marquee {
@@ -1451,6 +1459,40 @@ body {
 @media (max-width: 640px) {
   .page-section--hero {
     padding-top: 24px;
+  }
+
+  /* First screen: logo pinned top; headline → Features vertically centered; showcase below after scroll */
+  .landing-hero.page-section--hero {
+    min-height: 100dvh;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    padding-top: max(20px, env(safe-area-inset-top, 0px));
+    padding-bottom: clamp(18px, 4vw, 28px);
+    box-sizing: border-box;
+  }
+
+  .landing-hero .landing-hero__inner {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: min(640px, 100%);
+  }
+
+  .landing-hero .landing-hero__brand {
+    flex: 0 0 auto;
+  }
+
+  .landing-hero .landing-hero__center {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: clamp(14px, 3.5vw, 22px);
+    min-height: 0;
+    width: 100%;
   }
 
   .page-section__inner {
