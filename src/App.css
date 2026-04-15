@@ -22,8 +22,6 @@
   --success-text: #7d4e1e;
   --error-bg: rgba(179, 38, 30, 0.12);
   --error-text: #b3261e;
-  --flower-orange: #ff6f00;
-  --flower-yellow: #ffca28;
 }
 
 @keyframes ui-spinner-rotate {
@@ -266,57 +264,35 @@ body {
 .logo-flower {
   position: relative;
   display: inline-flex;
-  margin-inline: 0.02em 0.03em;
-  width: 0.9em;
-  height: 0.9em;
-  transform: translateY(0.05em) scale(0.92);
-}
-
-.logo-flower-back,
-.logo-flower-front {
-  position: absolute;
-  inset: 0;
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
+  margin-inline: -0.08em -0.1em;
+  /* Match cap height of the title (Oi); em fallback for older engines */
+  width: 1.3em;
+  height: 1.3em;
+  transform: translateY(0.07em);
 }
 
-.logo-flower-back {
-  color: var(--flower-orange);
+@supports (width: 1cap) {
+  .logo-flower {
+    width: 2.0cap;
+    height: 2.0cap;
+    transform: translateY(0.6cap);
+    margin-inline: -0.14cap -0.18cap;
+  }
 }
 
-.logo-flower-front {
-  color: var(--flower-yellow);
-  transform: scale(0.72);
+.logo-flower img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .divider {
   width: 0;
   height: 0;
   margin: 14px auto 28px;
-}
-
-/* Decorative meadow flower: mobile landing only (see @media max-width 640px) */
-.landing-hero__flower-wrap {
-  display: none;
-}
-
-.landing-hero__cta {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  gap: clamp(14px, 3.5vw, 22px);
-}
-
-@keyframes landing-hero-flower-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .hero-text h2 {
@@ -1512,52 +1488,13 @@ body {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: clamp(10px, 2.5vw, 18px);
+    gap: clamp(14px, 3.5vw, 22px);
     min-height: 0;
     width: 100%;
   }
 
-  .landing-hero .landing-hero__flower-wrap {
-    display: flex;
-    flex: 1 1 0;
-    min-height: clamp(64px, 14vmin, 140px);
-    max-height: min(42vh, 300px);
-    width: 100%;
-    align-items: flex-end;
-    justify-content: center;
-    padding-bottom: clamp(4px, 1.2vw, 10px);
-    pointer-events: none;
-    -webkit-user-select: none;
-    user-select: none;
-  }
-
-  .landing-hero__flower {
-    display: block;
-    width: min(78vmin, 280px);
-    height: min(78vmin, 280px);
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    animation: landing-hero-flower-spin 32s linear infinite;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-    filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--primary) 22%, transparent));
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .landing-hero__flower {
-      animation: none;
-    }
-  }
-
   .landing-hero .logo {
     font-size: clamp(1.9rem, 6.8vw, 2.45rem);
-  }
-
-  .landing-hero .landing-hero__cta {
-    flex: 0 0 auto;
-    gap: clamp(12px, 3.2vw, 20px);
   }
 
   .page-section__inner {

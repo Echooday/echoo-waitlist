@@ -15,13 +15,14 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import "./App.css";
-import echooFlowerMeadow from "./assets/echoo-flower-meadow.svg";
 import { supabase, supabaseAnonKey, supabaseProjectUrl } from "./supabase";
 import {
   track,
   setAnalyticsConsentWeb,
   ANALYTICS_CONSENT_STORAGE_KEY,
 } from "./analytics";
+
+const ECHOO_FLOWER_MEADOW_SRC = "/echoo-flower-meadow.svg";
 import { PostHogPageviews } from "./posthog-pageviews";
 import { FeatureRequestsPage } from "./modules/feature-requests";
 import { ReferralPersonalDashboard } from "./referral-components";
@@ -502,8 +503,13 @@ function LandingPage() {
               <h1 className="logo">
                 ECH
                 <span className="logo-flower" aria-hidden="true">
-                  <span className="logo-flower-back">✿</span>
-                  <span className="logo-flower-front">✿</span>
+                  <img
+                    src={ECHOO_FLOWER_MEADOW_SRC}
+                    alt=""
+                    width={128}
+                    height={128}
+                    decoding="async"
+                  />
                 </span>
                 O
               </h1>
@@ -511,22 +517,12 @@ function LandingPage() {
             </header>
 
             <div className="landing-hero__center">
-              <div className="landing-hero__flower-wrap" aria-hidden="true">
-                <img
-                  src={echooFlowerMeadow}
-                  alt=""
-                  className="landing-hero__flower"
-                  draggable={false}
-                />
-              </div>
+              <section className="hero-text">
+                <h2>Your day, your voice, your echoo.</h2>
+                <p>Early access · voice-first journal · pro for free for up to 24 months</p>
+              </section>
 
-              <div className="landing-hero__cta">
-                <section className="hero-text">
-                  <h2>Your day, your voice, your echoo.</h2>
-                  <p>Early access · voice-first journal · pro for free for up to 24 months</p>
-                </section>
-
-                {!submitted ? (
+              {!submitted ? (
                 <form onSubmit={handleSubmit} className="minimal-form">
                   <input
                     type="email"
@@ -621,15 +617,14 @@ function LandingPage() {
                 />
               ) : null}
 
-                <div className="landing-links-row">
-                  <Link
-                    to="/feature-requests"
-                    className="feature-request-link"
-                    onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
-                  >
-                    Features
-                  </Link>
-                </div>
+              <div className="landing-links-row">
+                <Link
+                  to="/feature-requests"
+                  className="feature-request-link"
+                  onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
+                >
+                  Features
+                </Link>
               </div>
             </div>
           </div>
@@ -767,8 +762,13 @@ function ConfirmWaitlistPage() {
               <h1 className="logo">
                 ECH
                 <span className="logo-flower" aria-hidden="true">
-                  <span className="logo-flower-back">✿</span>
-                  <span className="logo-flower-front">✿</span>
+                  <img
+                    src={ECHOO_FLOWER_MEADOW_SRC}
+                    alt=""
+                    width={150}
+                    height={150}
+                    decoding="async"
+                  />
                 </span>
                 O
               </h1>
