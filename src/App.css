@@ -259,10 +259,17 @@ body {
   letter-spacing: 0;
   line-height: 1.1;
   color: var(--text-main);
+  isolation: isolate;
+}
+
+.logo-word {
+  position: relative;
+  z-index: 1;
 }
 
 .logo-flower {
   position: relative;
+  z-index: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -275,10 +282,10 @@ body {
 
 @supports (width: 1cap) {
   .logo-flower {
-    width: 2.0cap;
-    height: 2.0cap;
-    transform: translateY(0.6cap);
-    margin-inline: -0.14cap -0.18cap;
+    width: 1.5cap;
+    height: 1.5cap;
+    transform: translateY(0.3cap);
+    margin-inline: -0.18cap -0.17cap;
   }
 }
 

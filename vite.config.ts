@@ -58,6 +58,13 @@ function leftMockupsVirtualModule(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    // Listen on all interfaces so you can open http://<LAN-IP>:5173/ on a phone (same Wi‑Fi).
+    host: true,
+  },
+  preview: {
+    host: true,
+  },
   plugins: [
     react({
       babel: {

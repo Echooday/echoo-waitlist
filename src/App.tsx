@@ -512,11 +512,11 @@ function LandingPage() {
           <div className="page-section__inner landing-hero__inner">
             <header className="brand landing-hero__brand">
               <h1 className="logo">
-                ECH
+                <span className="logo-word">ECH</span>
                 <span className="logo-flower" aria-hidden="true">
                   <img {...FLOWER_LOGO_IMG_PROPS} />
                 </span>
-                O
+                <span className="logo-word">O</span>
               </h1>
               <div className="divider"></div>
             </header>
@@ -765,11 +765,11 @@ function ConfirmWaitlistPage() {
           <div className="page-section__inner">
             <header className="brand">
               <h1 className="logo">
-                ECH
+                <span className="logo-word">ECH</span>
                 <span className="logo-flower" aria-hidden="true">
                   <img {...FLOWER_LOGO_IMG_PROPS} />
                 </span>
-                O
+                <span className="logo-word">O</span>
               </h1>
               <div className="divider"></div>
             </header>
