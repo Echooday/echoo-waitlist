@@ -537,7 +537,7 @@ function LandingPage() {
                       <span>Joining…</span>
                     </span>
                   ) : (
-                    "Join"
+                    "Join/See your stats"
                   )}
                 </button>
                 {message ? <p className="status-message">{message}</p> : null}
