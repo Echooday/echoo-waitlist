@@ -15,6 +15,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import "./App.css";
+import echooFlowerMeadow from "./assets/echoo-flower-meadow.svg";
 import { supabase, supabaseAnonKey, supabaseProjectUrl } from "./supabase";
 import {
   track,
@@ -510,12 +511,22 @@ function LandingPage() {
             </header>
 
             <div className="landing-hero__center">
-              <section className="hero-text">
-                <h2>Your day, your voice, your echoo.</h2>
-                <p>Early access · voice-first journal · pro for free for up to 24 months</p>
-              </section>
+              <div className="landing-hero__flower-wrap" aria-hidden="true">
+                <img
+                  src={echooFlowerMeadow}
+                  alt=""
+                  className="landing-hero__flower"
+                  draggable={false}
+                />
+              </div>
 
-              {!submitted ? (
+              <div className="landing-hero__cta">
+                <section className="hero-text">
+                  <h2>Your day, your voice, your echoo.</h2>
+                  <p>Early access · voice-first journal · pro for free for up to 24 months</p>
+                </section>
+
+                {!submitted ? (
                 <form onSubmit={handleSubmit} className="minimal-form">
                   <input
                     type="email"
@@ -610,14 +621,15 @@ function LandingPage() {
                 />
               ) : null}
 
-              <div className="landing-links-row">
-                <Link
-                  to="/feature-requests"
-                  className="feature-request-link"
-                  onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
-                >
-                  Features
-                </Link>
+                <div className="landing-links-row">
+                  <Link
+                    to="/feature-requests"
+                    className="feature-request-link"
+                    onClick={() => track("funnel_feature_requests_link_clicked", { source: "landing" })}
+                  >
+                    Features
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
