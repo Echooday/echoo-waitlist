@@ -63,15 +63,6 @@ The repository also contains a GitHub Action (`.github/workflows/secret-scan.yml
 
 `vercel.json` is included.
 
-### Netlify
-
-- Base directory: `waitlist`
-- Build command: `npm run build`
-- Publish directory: `dist`
-- Set env vars from `.env.example`
-
-`netlify.toml` is included.
-
 ## Backend note
 
 This UI expects backend endpoints/RPCs to exist, but backend implementation and operations are intentionally not documented in this open-source repository.
