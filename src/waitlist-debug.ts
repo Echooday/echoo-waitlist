@@ -35,3 +35,17 @@ export function waitlistDebug(label: string, payload: Record<string, unknown>): 
   if (!isWaitlistDebugEnabled()) return;
   console.info(`[echoo waitlist] ${label}`, payload);
 }
+
+/** Logs confirmation failures in a consistent, token-safe shape (console + optional debug channel). */
+export function logWaitlistConfirmationFailure(
+  diag: Record<string, unknown>,
+  level: "error" | "warn" = "error",
+): void {
+  const line = "[echoo waitlist] confirmation failed";
+  if (level === "warn") {
+    console.warn(line, diag);
+  } else {
+    console.error(line, diag);
+  }
+  waitlistDebug("confirmation failed (detail)", diag);
+}

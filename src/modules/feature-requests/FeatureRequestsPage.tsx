@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  isWaitlistGateVerifiedForAccessEmail,
+  getFeatureRequestsGateEmail,
   persistConfirmedWaitlistEmail,
+  readWaitlistSession,
 } from "../../waitlist-session";
 import { track } from "../../analytics";
 import "./feature-requests.css";
@@ -29,19 +30,15 @@ export function FeatureRequestsPage({
 }: Props) {
   const [searchParams] = useSearchParams();
   const urlEmailPrefillAttempted = useRef(false);
+  const waitlistSessionBootstrapRef = useRef(false);
+  const gateEmailSessionPrefillRef = useRef(false);
   const submitterType: SubmitterType = currentUserId ? "verified" : "unverified";
   const isVerifiedSession = !!currentUserId;
   const requiresWaitlistGate = source === "waitlist" && !isVerifiedSession;
   const [gateChecked, setGateChecked] = useState(() => {
     if (typeof window === "undefined") return true;
     if (!requiresWaitlistGate) return true;
-    try {
-      const access = window.sessionStorage.getItem("echoo_feature_access_email");
-      const normalized = access?.trim() ? access.trim().toLowerCase() : null;
-      return isWaitlistGateVerifiedForAccessEmail(normalized);
-    } catch {
-      return false;
-    }
+    return getFeatureRequestsGateEmail() != null;
   });
   const [requests, setRequests] = useState<FeatureRequestRow[]>([]);
   const [voteMap, setVoteMap] = useState<Record<string, number>>({});
@@ -60,25 +57,11 @@ export function FeatureRequestsPage({
   const [gateError, setGateError] = useState("");
   const [sessionVoterEmail, setSessionVoterEmail] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
-    try {
-      const voter = window.sessionStorage.getItem("echoo_feature_voter_email");
-      if (voter?.trim()) return voter.trim().toLowerCase();
-      const access = window.sessionStorage.getItem("echoo_feature_access_email");
-      const a = access?.trim() ? access.trim().toLowerCase() : null;
-      if (a && isWaitlistGateVerifiedForAccessEmail(a)) return a;
-      return null;
-    } catch {
-      return null;
-    }
+    return getFeatureRequestsGateEmail();
   });
   const [accessEmail, setAccessEmail] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
-    try {
-      const value = window.sessionStorage.getItem("echoo_feature_access_email");
-      return value?.trim() ? value.trim().toLowerCase() : null;
-    } catch {
-      return null;
-    }
+    return getFeatureRequestsGateEmail();
   });
 
   useEffect(() => {
@@ -256,6 +239,28 @@ export function FeatureRequestsPage({
     },
     [supabase],
   );
+
+  useEffect(() => {
+    if (!requiresWaitlistGate || gateChecked || waitlistSessionBootstrapRef.current) return;
+    const snap = readWaitlistSession();
+    if (!snap?.email?.trim() || snap.needsConfirmation) return;
+    waitlistSessionBootstrapRef.current = true;
+    const email = snap.email;
+    window.setTimeout(() => {
+      void verifyGateEmail(email);
+    }, 0);
+  }, [requiresWaitlistGate, gateChecked, verifyGateEmail]);
+
+  useEffect(() => {
+    if (!requiresWaitlistGate || gateChecked || gateEmailSessionPrefillRef.current) return;
+    const snap = readWaitlistSession();
+    if (!snap?.email?.trim()) return;
+    gateEmailSessionPrefillRef.current = true;
+    const email = snap.email;
+    window.setTimeout(() => {
+      setGateEmailInput(email);
+    }, 0);
+  }, [gateChecked, requiresWaitlistGate]);
 
   useEffect(() => {
     if (requiresWaitlistGate && !gateChecked && !urlEmailPrefillAttempted.current) {

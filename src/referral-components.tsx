@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildWaitlistReferralShareUrl,
@@ -263,11 +263,14 @@ function ReferralPipelineStatsInner({
   email,
   referralCodeOverride,
   initialStats,
+  showReferralInvite = true,
 }: {
   supabase: SupabaseClient;
   email: string;
   referralCodeOverride?: string | null;
   initialStats?: InitialDashboardStats | null;
+  /** When false, stats stay visible but the shareable referral link is hidden (e.g. email not confirmed yet). */
+  showReferralInvite?: boolean;
 }) {
   const [stats, setStats] = useState<DashboardStats | null>(initialStats ?? null);
   const [loading, setLoading] = useState(false);
@@ -348,7 +351,7 @@ function ReferralPipelineStatsInner({
     };
   }, [email, retryNonce, supabase]);
 
-  const code = referralCodeOverride ?? stats?.referral_code ?? null;
+  const code = showReferralInvite ? referralCodeOverride ?? stats?.referral_code ?? null : null;
   const potentialMonths = stats
     ? Math.max(
         stats.months_granted_total,
@@ -435,7 +438,7 @@ function ReferralPipelineStatsInner({
           </button>
         </div>
       )}
-      <ReferralInviteCard referralCode={code} />
+      {showReferralInvite && code ? <ReferralInviteCard referralCode={code} /> : null}
     </div>
   );
 }
@@ -463,7 +466,7 @@ export function ReferralPersonalDashboard({
   referralCodeOverride?: string | null;
   initialStats?: InitialDashboardStats | null;
   onResetLanding?: () => void;
-  /** True when this browser session joined but email is not confirmed yet — hide referral until confirm + gate copy. */
+  /** True when this browser session joined but email is not confirmed yet — stats visible, referral link hidden. */
   statsGatePendingConfirmation?: boolean;
 }) {
   const [inputEmail, setInputEmail] = useState(() => emailGuess?.trim().toLowerCase() ?? "");
@@ -475,6 +478,17 @@ export function ReferralPersonalDashboard({
     const g = emailGuess?.trim().toLowerCase() ?? "";
     return g && canAutoUnlockStatsForEmail(g) ? g : null;
   });
+
+  const emailGuessNorm = emailGuess?.trim().toLowerCase() ?? "";
+
+  const effectiveStatsEmail = useMemo(() => {
+    if (unlockedEmail) return unlockedEmail;
+    if (statsGatePendingConfirmation && emailGuessNorm) return emailGuessNorm;
+    if (emailGuessNorm && canAutoUnlockStatsForEmail(emailGuessNorm)) return emailGuessNorm;
+    return null;
+  }, [emailGuessNorm, statsGatePendingConfirmation, unlockedEmail]);
+
+  const allowReferralInvite = !statsGatePendingConfirmation;
 
   useEffect(() => {
     const g = emailGuess?.trim().toLowerCase() ?? "";
@@ -520,6 +534,7 @@ export function ReferralPersonalDashboard({
 
   const hasEmailGuess = Boolean(emailGuess?.trim());
   const showInviteOnly = Boolean(referralCodeOverride?.trim()) && !hasEmailGuess;
+  const showEmailGate = !showInviteOnly && !effectiveStatsEmail;
   const switchEmail = useCallback(() => {
     clearReferralStatsVerifiedEmail();
     clearConfirmedWaitlistEmail();
@@ -532,10 +547,10 @@ export function ReferralPersonalDashboard({
     setInputEmail("");
   }, [onResetLanding]);
   const leaveWaitlist = useCallback(async () => {
-    if (!unlockedEmail || leaveLoading) return;
+    if (!effectiveStatsEmail || leaveLoading) return;
     setLeaveLoading(true);
     setGateError("");
-    const { error } = await supabase.rpc("leave_waitlist", { p_email: unlockedEmail });
+    const { error } = await supabase.rpc("leave_waitlist", { p_email: effectiveStatsEmail });
     setLeaveLoading(false);
     if (error) {
       const rpcMissing =
@@ -551,13 +566,13 @@ export function ReferralPersonalDashboard({
     }
     setLeaveOpen(false);
     switchEmail();
-  }, [leaveLoading, supabase, switchEmail, unlockedEmail]);
+  }, [effectiveStatsEmail, leaveLoading, supabase, switchEmail]);
 
   return (
     <div className="referral-your-stats-card">
       <div className="referral-your-stats-head">
         <h3 className="referral-your-stats-card-title">Your stats</h3>
-        {unlockedEmail ? (
+        {effectiveStatsEmail ? (
           <div className="referral-stats-head-actions">
             <button type="button" className="referral-switch-email-btn" onClick={switchEmail}>
               Enter other email
@@ -569,22 +584,23 @@ export function ReferralPersonalDashboard({
         ) : null}
       </div>
       <div className="referral-personal-wrap">
-        {showInviteOnly && !unlockedEmail ? (
+        {showInviteOnly && !effectiveStatsEmail ? (
           <ReferralInviteCard referralCode={referralCodeOverride} />
         ) : null}
 
-        {unlockedEmail ? (
+        {effectiveStatsEmail ? (
           <ReferralPipelineStatsInner
             supabase={supabase}
-            email={unlockedEmail}
+            email={effectiveStatsEmail}
             referralCodeOverride={referralCodeOverride}
             initialStats={initialStats}
+            showReferralInvite={allowReferralInvite}
           />
-        ) : !showInviteOnly ? (
+        ) : showEmailGate ? (
           <div className="referral-stats-gate">
             <p className="referral-stats-gate-lead">
               {statsGatePendingConfirmation
-                ? "Confirm your email from the link we sent you. After that, enter the same email here to see your referral link and stats."
+                ? "Confirm your email from the link we sent you to unlock your referral link."
                 : "Enter the email you confirmed on the waitlist."}
             </p>
             <div className="referral-stats-gate-row">

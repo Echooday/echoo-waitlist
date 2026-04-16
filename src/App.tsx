@@ -38,7 +38,11 @@ import {
   persistWaitlistSession,
   readWaitlistSession,
 } from "./waitlist-session";
-import { maskWaitlistToken, waitlistDebug } from "./waitlist-debug";
+import {
+  logWaitlistConfirmationFailure,
+  maskWaitlistToken,
+  waitlistDebug,
+} from "./waitlist-debug";
 
 /** Raster assets under `public/flower-meadow/` (generated from `src/assets/flower_meadow.png`). */
 const FLOWER_LOGO_IMG_PROPS: ImgHTMLAttributes<HTMLImageElement> = {
@@ -1085,14 +1089,25 @@ async function rpcConfirmWaitlistEmailDeduped(token: string): Promise<ConfirmWai
       (err.code === "PGRST202" ||
         /confirm_waitlist_email/i.test(err.message ?? "") ||
         /function.*does not exist/i.test(err.message ?? ""));
-    waitlistDebug("confirm_waitlist_email:response", {
+    const responseDiag = {
       rowCount: rows.length,
       rpcMissing,
       errorCode: err?.code ?? null,
       errorMessage: err?.message ?? null,
+      errorDetails: err?.details ?? null,
+      errorHint: err?.hint ?? null,
       dataShape:
         data == null ? "null" : Array.isArray(data) ? `array(${data.length})` : typeof data,
-    });
+      emptyRowsNoError: rows.length === 0 && !err,
+    };
+    waitlistDebug("confirm_waitlist_email:response", responseDiag);
+    if (rows.length === 0 && !rpcMissing) {
+      waitlistDebug("confirm_waitlist_email:empty_rows_hint", {
+        meaning:
+          "RPC returned no rows: token not in DB, entry unsubscribed, or anon calling wrong Supabase project.",
+        token: maskWaitlistToken(token),
+      });
+    }
     return { rows, error: err, rpcMissing };
   })();
 
@@ -1146,8 +1161,18 @@ function ConfirmWaitlistPage() {
       const { rows, error, rpcMissing } = await rpcConfirmWaitlistEmailDeduped(token);
 
       if (rpcMissing) {
-        waitlistDebug("confirm page:rpc_missing", {
+        let supabaseHost: string | null = null;
+        try {
+          supabaseHost = new URL(supabaseProjectUrl).host;
+        } catch {
+          supabaseHost = null;
+        }
+        logWaitlistConfirmationFailure({
+          failureKind: "rpc_not_deployed",
           token: token ? maskWaitlistToken(token) : null,
+          tokenLength: token?.length ?? 0,
+          supabaseHost,
+          nextSteps: "Deploy migration with confirm_waitlist_email and grant execute to anon.",
         });
         setMessage(
           "Confirmation is not deployed yet: RPC confirm_waitlist_email is missing.",
@@ -1157,18 +1182,27 @@ function ConfirmWaitlistPage() {
       }
 
       if (error || rows.length === 0) {
-        console.error("Waitlist confirmation failed", {
-          code: error?.code,
-          message: error?.message,
-          details: error?.details,
-          hint: error?.hint,
-          rowCount: rows.length,
-        });
-        waitlistDebug("confirm page:failure", {
-          token: token ? maskWaitlistToken(token) : null,
+        let supabaseHost: string | null = null;
+        try {
+          supabaseHost = new URL(supabaseProjectUrl).host;
+        } catch {
+          supabaseHost = null;
+        }
+        const failureKind = error ? "postgrest_error" : "empty_rpc_rows";
+        logWaitlistConfirmationFailure({
+          failureKind,
           rowCount: rows.length,
           errorCode: error?.code ?? null,
           errorMessage: error?.message ?? null,
+          errorDetails: error?.details ?? null,
+          errorHint: error?.hint ?? null,
+          token: token ? maskWaitlistToken(token) : null,
+          tokenLength: token?.length ?? 0,
+          supabaseHost,
+          nextSteps:
+            failureKind === "empty_rpc_rows"
+              ? "No row matched token (expired/resend, unsubscribe, or VITE_SUPABASE_URL points at another project)."
+              : "See PostgREST error fields; check RLS, grants, and network.",
         });
         setMessage("Confirmation failed. Please retry from the latest email link.");
         track("funnel_confirmation_failed", { reason: "rpc_or_data_error", code: error?.code });
@@ -1231,10 +1265,22 @@ function ConfirmWaitlistPage() {
             ? ` (network: blocked or wrong Supabase URL — check VITE_SUPABASE_URL has no /rest/v1, ad blockers, VPN)`
             : ` (${err.message})`
           : "";
-      waitlistDebug("confirm page:exception", {
-        token: token ? maskWaitlistToken(token) : null,
+      let supabaseHost: string | null = null;
+      try {
+        supabaseHost = new URL(supabaseProjectUrl).host;
+      } catch {
+        supabaseHost = null;
+      }
+      logWaitlistConfirmationFailure({
+        failureKind: "runtime_or_network",
         isNetwork,
         message: err instanceof Error ? err.message : String(err),
+        token: token ? maskWaitlistToken(token) : null,
+        tokenLength: token?.length ?? 0,
+        supabaseHost,
+        nextSteps: isNetwork
+          ? "Check VITE_SUPABASE_URL (no /rest/v1), ad blockers, VPN, CORS."
+          : "Unexpected error during confirm; see message.",
       });
       setMessage(`Could not confirm right now${detail}.`);
       track("funnel_confirmation_failed", { reason: "network_or_runtime_error" });

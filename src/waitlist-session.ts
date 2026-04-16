@@ -188,3 +188,21 @@ export function isWaitlistGateVerifiedForAccessEmail(accessEmail: string | null)
     return false;
   }
 }
+
+/**
+ * Normalized email already cleared for feature-requests (feature_access / voter / gate keys agree).
+ */
+export function getFeatureRequestsGateEmail(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const access = window.sessionStorage.getItem(FEATURE_ACCESS_KEY)?.trim().toLowerCase() ?? "";
+    if (access && isWaitlistGateVerifiedForAccessEmail(access)) return access;
+    const voter = window.sessionStorage.getItem(FEATURE_VOTER_KEY)?.trim().toLowerCase() ?? "";
+    if (voter && isWaitlistGateVerifiedForAccessEmail(voter)) return voter;
+    const gate = window.sessionStorage.getItem(WAITLIST_GATE_VERIFIED_KEY)?.trim().toLowerCase() ?? "";
+    if (gate && isWaitlistGateVerifiedForAccessEmail(gate)) return gate;
+    return null;
+  } catch {
+    return null;
+  }
+}
