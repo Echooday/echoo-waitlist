@@ -5,10 +5,12 @@ import {
   clearConfirmedWaitlistEmail,
   clearReferralStatsVerifiedEmail,
   isReferralStatsVerifiedForEmail,
+  isWaitlistGateVerifiedForAccessEmail,
   markReferralStatsVerifiedEmail,
   persistConfirmedWaitlistEmail,
 } from "./waitlist-session";
 import { track } from "./analytics";
+import { normalizeRpcRows } from "./normalize-rpc-rows";
 
 export type DashboardStats = {
   invited_count: number;
@@ -66,14 +68,6 @@ function rpcWaitlistOrder(row: Record<string, unknown>): unknown {
 
 function rpcTotalConfirmed(row: Record<string, unknown>): unknown {
   return row.total_confirmed_waitlist ?? row.totalConfirmedWaitlist;
-}
-
-/** Supabase usually returns an array of rows; tolerate a single object. */
-function normalizeRpcRows(data: unknown): Record<string, unknown>[] {
-  if (data == null) return [];
-  if (Array.isArray(data)) return data as Record<string, unknown>[];
-  if (typeof data === "object") return [data as Record<string, unknown>];
-  return [];
 }
 
 /**
@@ -449,18 +443,28 @@ function ReferralPipelineStatsInner({
 /**
  * Personal stats (card) + invite: requires verified waitlist email, or ?ref= invite-only.
  */
+function canAutoUnlockStatsForEmail(emailNorm: string): boolean {
+  if (!emailNorm) return false;
+  return (
+    isReferralStatsVerifiedForEmail(emailNorm) || isWaitlistGateVerifiedForAccessEmail(emailNorm)
+  );
+}
+
 export function ReferralPersonalDashboard({
   supabase,
   emailGuess,
   referralCodeOverride,
   initialStats,
   onResetLanding,
+  statsGatePendingConfirmation,
 }: {
   supabase: SupabaseClient;
   emailGuess: string | null | undefined;
   referralCodeOverride?: string | null;
   initialStats?: InitialDashboardStats | null;
   onResetLanding?: () => void;
+  /** True when this browser session joined but email is not confirmed yet — hide referral until confirm + gate copy. */
+  statsGatePendingConfirmation?: boolean;
 }) {
   const [inputEmail, setInputEmail] = useState(() => emailGuess?.trim().toLowerCase() ?? "");
   const [busy, setBusy] = useState(false);
@@ -469,15 +473,19 @@ export function ReferralPersonalDashboard({
   const [leaveLoading, setLeaveLoading] = useState(false);
   const [unlockedEmail, setUnlockedEmail] = useState<string | null>(() => {
     const g = emailGuess?.trim().toLowerCase() ?? "";
-    return g && (isReferralStatsVerifiedForEmail(g) || Boolean(emailGuess?.trim())) ? g : null;
+    return g && canAutoUnlockStatsForEmail(g) ? g : null;
   });
 
   useEffect(() => {
     const g = emailGuess?.trim().toLowerCase() ?? "";
     const timer = window.setTimeout(() => {
       if (g) setInputEmail(g);
-      if (g) {
+      if (g && canAutoUnlockStatsForEmail(g)) {
         setUnlockedEmail(g);
+      } else if (!g) {
+        setUnlockedEmail(null);
+      } else if (g && !canAutoUnlockStatsForEmail(g)) {
+        setUnlockedEmail(null);
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -574,7 +582,11 @@ export function ReferralPersonalDashboard({
           />
         ) : !showInviteOnly ? (
           <div className="referral-stats-gate">
-            <p className="referral-stats-gate-lead">Enter the email you confirmed on the waitlist.</p>
+            <p className="referral-stats-gate-lead">
+              {statsGatePendingConfirmation
+                ? "Confirm your email from the link we sent you. After that, enter the same email here to see your referral link and stats."
+                : "Enter the email you confirmed on the waitlist."}
+            </p>
             <div className="referral-stats-gate-row">
               <input
                 type="email"

@@ -25,6 +25,7 @@ import {
 import { PostHogPageviews } from "./posthog-pageviews";
 import { FeatureRequestsPage } from "./modules/feature-requests";
 import { ReferralPersonalDashboard, type InitialDashboardStats } from "./referral-components";
+import { normalizeRpcRows } from "./normalize-rpc-rows";
 import {
   captureReferralFromUrl,
   clearConfirmedWaitlistEmail,
@@ -108,28 +109,103 @@ function getRemainingResendSeconds(email: string): number {
   return Math.max(0, Math.ceil((nextAllowedAtMs - Date.now()) / 1000));
 }
 
+/**
+ * Decode and trim only. `confirm_waitlist_email` normalizes (lower + strip non-alphanumeric) on the server;
+ * duplicating aggressive stripping here can corrupt tokens from some mail clients.
+ */
+function sanitizeConfirmationToken(raw: string | null | undefined): string | null {
+  if (raw == null || raw === "") return null;
+  let decoded = raw.trim();
+  for (let i = 0; i < 4; i++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded.length > 0 ? decoded : null;
+}
+
+const NESTED_LINK_PARAM_KEYS = ["url", "u", "redirect", "redirectUrl", "dest", "target", "location"] as const;
+
+function extractTokenFromSearchParams(params: URLSearchParams): string | null {
+  const direct = sanitizeConfirmationToken(params.get("token"));
+  if (direct) return direct;
+
+  for (const key of NESTED_LINK_PARAM_KEYS) {
+    const wrapped = params.get(key);
+    if (!wrapped) continue;
+    const nested = extractTokenFromUrlLikeString(wrapped);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Parses absolute URLs, hash routes (e.g. #/confirm?token=), and raw strings (incl. nested mail scanner links). */
+function extractTokenFromUrlLikeString(raw: string): string | null {
+  const decoded = (() => {
+    let s = raw.trim();
+    for (let i = 0; i < 4; i++) {
+      try {
+        const next = decodeURIComponent(s);
+        if (next === s) break;
+        s = next;
+      } catch {
+        break;
+      }
+    }
+    return s;
+  })();
+
+  try {
+    const u = new URL(decoded);
+    const fromSearch = extractTokenFromSearchParams(u.searchParams);
+    if (fromSearch) return fromSearch;
+    if (u.hash) {
+      const h = u.hash.startsWith("#") ? u.hash.slice(1) : u.hash;
+      const qi = h.indexOf("?");
+      if (qi !== -1) {
+        const fromHash = extractTokenFromSearchParams(new URLSearchParams(h.slice(qi + 1)));
+        if (fromHash) return fromHash;
+      }
+    }
+  } catch {
+    // Not an absolute URL — try hash-style fragments below.
+  }
+
+  const hashIdx = decoded.indexOf("#");
+  if (hashIdx !== -1) {
+    const afterHash = decoded.slice(hashIdx + 1);
+    const qi = afterHash.indexOf("?");
+    if (qi !== -1) {
+      const fromHash = extractTokenFromSearchParams(new URLSearchParams(afterHash.slice(qi + 1)));
+      if (fromHash) return fromHash;
+    }
+  }
+
+  const m = /(?:[?&#])token=([^&#'"\s<]+)/i.exec(decoded);
+  if (m?.[1]) return sanitizeConfirmationToken(m[1]);
+
+  return null;
+}
+
 function extractConfirmationToken(): string | null {
   if (typeof window === "undefined") return null;
 
-  const sanitizeToken = (raw: string | null): string | null => {
-    if (!raw) return null;
-    const decoded = decodeURIComponent(raw).trim();
-    const trimmed = decoded.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, "");
-    const normalized = trimmed.replace(/[^a-zA-Z0-9]/g, "");
-    return normalized.length > 0 ? normalized : null;
-  };
-
-  const fromSearch = sanitizeToken(new URLSearchParams(window.location.search).get("token"));
+  const fromSearch = extractTokenFromSearchParams(new URLSearchParams(window.location.search));
   if (fromSearch) return fromSearch;
 
   const hash = window.location.hash ?? "";
   const questionMarkIndex = hash.indexOf("?");
   if (questionMarkIndex !== -1) {
     const hashQuery = hash.slice(questionMarkIndex + 1);
-    return sanitizeToken(new URLSearchParams(hashQuery).get("token"));
+    const fromHash = extractTokenFromSearchParams(new URLSearchParams(hashQuery));
+    if (fromHash) return fromHash;
   }
 
-  return null;
+  return extractTokenFromUrlLikeString(window.location.href);
 }
 
 const SHOWCASE_FALLBACK_SLIDES = [
@@ -940,9 +1016,10 @@ function LandingPage() {
                 <ReferralPersonalDashboard
                   supabase={supabase}
                   emailGuess={confirmationEmail}
-                  referralCodeOverride={referralCode}
+                  referralCodeOverride={needsConfirmation ? null : referralCode}
                   initialStats={initialDashboardStats}
                   onResetLanding={resetLandingFromStats}
+                  statsGatePendingConfirmation={needsConfirmation}
                 />
               ) : null}
 
@@ -974,6 +1051,40 @@ function LandingPage() {
   );
 }
 
+type ConfirmWaitlistRpcOutcome = {
+  rows: Record<string, unknown>[];
+  error: { code?: string; message?: string; details?: string; hint?: string } | null;
+  rpcMissing: boolean;
+};
+
+const confirmWaitlistInflight = new Map<string, Promise<ConfirmWaitlistRpcOutcome>>();
+
+async function rpcConfirmWaitlistEmailDeduped(token: string): Promise<ConfirmWaitlistRpcOutcome> {
+  const existing = confirmWaitlistInflight.get(token);
+  if (existing) return existing;
+
+  const task = (async (): Promise<ConfirmWaitlistRpcOutcome> => {
+    const { data, error } = await supabase.rpc("confirm_waitlist_email", {
+      p_token: token,
+    });
+    const rows = normalizeRpcRows(data);
+    const err = error as ConfirmWaitlistRpcOutcome["error"];
+    const rpcMissing =
+      !!err &&
+      (err.code === "PGRST202" ||
+        /confirm_waitlist_email/i.test(err.message ?? "") ||
+        /function.*does not exist/i.test(err.message ?? ""));
+    return { rows, error: err, rpcMissing };
+  })();
+
+  confirmWaitlistInflight.set(token, task);
+  try {
+    return await task;
+  } finally {
+    confirmWaitlistInflight.delete(token);
+  }
+}
+
 function ConfirmWaitlistPage() {
   const navigate = useNavigate();
   const token = extractConfirmationToken();
@@ -993,37 +1104,33 @@ function ConfirmWaitlistPage() {
     setMessage("Confirming…");
     track("funnel_confirmation_attempted");
     try {
-      const { data, error } = await supabase.rpc("confirm_waitlist_email", {
-        p_token: token,
-      });
+      const { rows, error, rpcMissing } = await rpcConfirmWaitlistEmailDeduped(token);
 
-      if (error || !data || data.length === 0) {
-        const rpcMissing =
-          error?.code === "PGRST202" ||
-          /confirm_waitlist_email/i.test(error?.message ?? "") ||
-          /function.*does not exist/i.test(error?.message ?? "");
-        if (rpcMissing) {
-          setMessage(
-            "Confirmation is not deployed yet: RPC confirm_waitlist_email is missing.",
-          );
-          track("funnel_confirmation_failed", { reason: "rpc_missing" });
-          return;
-        }
+      if (rpcMissing) {
+        setMessage(
+          "Confirmation is not deployed yet: RPC confirm_waitlist_email is missing.",
+        );
+        track("funnel_confirmation_failed", { reason: "rpc_missing" });
+        return;
+      }
 
+      if (error || rows.length === 0) {
         console.error("Waitlist confirmation failed", {
           code: error?.code,
           message: error?.message,
           details: error?.details,
           hint: error?.hint,
+          rowCount: rows.length,
         });
         setMessage("Confirmation failed. Please retry from the latest email link.");
         track("funnel_confirmation_failed", { reason: "rpc_or_data_error", code: error?.code });
         return;
       }
 
-      const row = data[0];
+      const row = rows[0];
+      const rowPos = toOptionalNumber(row.waitlist_position);
       setConfirmed(true);
-      setPosition(row.waitlist_position ?? null);
+      setPosition(rowPos);
       setMessage("Confirmed.");
       const confirmedEmail =
         typeof row.email === "string" && row.email.trim().length > 0 ? row.email.trim() : "";
@@ -1038,17 +1145,17 @@ function ConfirmWaitlistPage() {
         persistWaitlistSession({
           email: confirmedEmail.toLowerCase(),
           needsConfirmation: false,
-          waitlistPosition: row.waitlist_position ?? null,
+          waitlistPosition: rowPos,
           referralCode: refCode,
         });
       }
       track("funnel_email_confirmed", {
-        waitlist_position: row.waitlist_position ?? undefined,
+        waitlist_position: rowPos ?? undefined,
         has_referral_code: Boolean(refCode),
       });
       const qs = new URLSearchParams();
-      if (row.waitlist_position !== null && row.waitlist_position !== undefined) {
-        qs.set("position", String(row.waitlist_position));
+      if (rowPos !== null) {
+        qs.set("position", String(rowPos));
       }
       if (confirmedEmail) {
         qs.set("email", confirmedEmail.toLowerCase());
