@@ -149,8 +149,8 @@ function PremiumMonthsExplainModal({ open, onClose }: { open: boolean; onClose: 
         </div>
         <div className="referral-info-modal-body">
           <p>
-            You earn premium months when people use your invite link, confirm their waitlist email, and then sign
-            up in the Echoo app.
+            Friends count for your waitlist stats as soon as they join the waitlist with your invite link.
+            Premium months are only earned once they register in the Echoo app.
           </p>
           <ul>
             <li>
@@ -164,8 +164,8 @@ function PremiumMonthsExplainModal({ open, onClose }: { open: boolean; onClose: 
             </li>
           </ul>
           <p className="referral-info-modal-note">
-            A referral counts only when your invitee reaches <strong>registered</strong> in the app; if friends stay on
-            the waitlist only, no premium is granted yet. Each person can only grant the reward once.
+            A referral grants premium only when your invitee reaches <strong>registered</strong> in the app; if friends stay on
+            the waitlist only, they still show up in your stats, but no premium is granted yet. Each person can only grant the reward once.
           </p>
         </div>
       </div>
@@ -336,7 +336,7 @@ function ReferralPipelineStatsInner({
   const potentialMonths = stats
     ? Math.max(
         stats.months_granted_total,
-        referralMonthsFromQualifiedCount(stats.confirmed_count),
+        referralMonthsFromQualifiedCount(stats.registered_count),
       )
     : 0;
   const potentialMonthsCapped = Math.min(24, potentialMonths);

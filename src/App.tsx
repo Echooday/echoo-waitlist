@@ -91,12 +91,6 @@ function getRemainingResendSeconds(email: string): number {
   return Math.max(0, Math.ceil((nextAllowedAtMs - Date.now()) / 1000));
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
 function extractConfirmationToken(): string | null {
   if (typeof window === "undefined") return null;
 
@@ -215,6 +209,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/confirm" element={<ConfirmWaitlistPage />} />
+        <Route path="/unsubscribe" element={<UnsubscribeWaitlistPage />} />
         <Route path="/confirmed" element={<ConfirmedPage />} />
         <Route
           path="/feature-requests"
@@ -240,6 +235,7 @@ function LandingPage() {
   const [confirmationEmail, setConfirmationEmail] = useState<string | null>(
     initialWaitlist?.email ?? null,
   );
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(
     initialWaitlist?.referralCode ?? null,
   );
@@ -333,7 +329,15 @@ function LandingPage() {
     return () => window.clearInterval(intervalId);
   }, [confirmationEmail]);
 
-  const requestConfirmationEmail = async (targetEmail: string) => {
+  type ConfirmationSendResult = {
+    confirmedSent: boolean;
+    reason: string | null;
+    retryAfterSeconds: number | null;
+  };
+
+  const requestConfirmationEmail = async (
+    targetEmail: string,
+  ): Promise<ConfirmationSendResult> => {
     const response = await fetch(`${supabaseProjectUrl}/functions/v1/waitlist-send-confirmation`, {
       method: "POST",
       headers: {
@@ -344,48 +348,139 @@ function LandingPage() {
       body: JSON.stringify({ email: targetEmail }),
     });
 
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
     if (!response.ok) {
       let detail = "";
-      try {
-        const payload = await response.json();
-        if (payload && typeof payload === "object" && "error" in payload) {
-          const raw = (payload as { error?: unknown }).error;
-          if (typeof raw === "string" && raw.trim()) {
-            detail = raw.trim();
-          }
+      if (payload && typeof payload === "object" && "error" in payload) {
+        const raw = (payload as { error?: unknown }).error;
+        if (typeof raw === "string" && raw.trim()) {
+          detail = raw.trim();
         }
-      } catch {
-        // ignore parse failures
       }
       throw new Error(detail || `HTTP ${response.status}`);
     }
 
-    setResendCooldown(targetEmail, RESEND_COOLDOWN_SECONDS);
-    setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
-  };
+    const isObjectPayload = payload && typeof payload === "object";
+    const sentFlag = Boolean(
+      isObjectPayload &&
+      "sent" in (payload as Record<string, unknown>) &&
+      (payload as { sent?: unknown }).sent === true,
+    );
+    const statusValue =
+      isObjectPayload && "status" in (payload as Record<string, unknown>)
+        ? String((payload as { status?: unknown }).status ?? "")
+        : "";
+    const reasonValue =
+      isObjectPayload && "reason" in (payload as Record<string, unknown>)
+        ? String((payload as { reason?: unknown }).reason ?? "")
+        : "";
+    const retryAfterRaw =
+      isObjectPayload && "retry_after_seconds" in (payload as Record<string, unknown>)
+        ? Number((payload as { retry_after_seconds?: unknown }).retry_after_seconds)
+        : Number.NaN;
+    const retryAfterSeconds = Number.isFinite(retryAfterRaw)
+      ? Math.max(0, Math.ceil(retryAfterRaw))
+      : null;
+    const statusSent = /^sent$/i.test(statusValue.trim());
+    const acceptedStatus = /^ok|accepted|queued$/i.test(statusValue.trim());
+    const genericOkOnly = Boolean(
+      isObjectPayload &&
+      Object.keys(payload as Record<string, unknown>).length === 1 &&
+      (payload as { ok?: unknown }).ok === true,
+    );
 
-  const requestInitialConfirmationEmailWithRetry = async (targetEmail: string) => {
-    const retryDelaysMs = [900, 1800];
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
-      try {
-        await requestConfirmationEmail(targetEmail);
-        return;
-      } catch (error) {
-        lastError = error;
-        if (attempt < retryDelaysMs.length) {
-          await sleep(retryDelaysMs[attempt]);
-          continue;
-        }
-      }
+    // Endpoint responded with an unexpected payload.
+    if (!sentFlag && !statusSent && !acceptedStatus && !genericOkOnly && payload !== null) {
+      throw new Error(`Mail endpoint returned non-send payload: ${JSON.stringify(payload)}`);
     }
 
-    setResendMessage("Could not send confirmation email. Please tap Resend.");
-    track("funnel_confirmation_email_initial_send_failed", {
-      email_domain: targetEmail.split("@")[1] || undefined,
-    });
-    throw (lastError instanceof Error ? lastError : new Error("initial confirmation send failed"));
+    setResendCooldown(targetEmail, RESEND_COOLDOWN_SECONDS);
+    setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+    return {
+      confirmedSent: sentFlag || statusSent,
+      reason: reasonValue || null,
+      retryAfterSeconds,
+    };
+  };
+
+  const runResendFlow = async (
+    targetEmail: string,
+    source: "auto" | "button",
+  ): Promise<ConfirmationSendResult> => {
+    setResendLoading(true);
+    setResendMessage(source === "button" ? "Sending..." : "Sending confirmation email...");
+    setResendCooldown(targetEmail, RESEND_COOLDOWN_SECONDS);
+    setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+    try {
+      const result = await requestConfirmationEmail(targetEmail);
+      if (result.confirmedSent) {
+        setResendMessage("Sent.");
+      } else if (result.reason === "cooldown") {
+        const suffix =
+          result.retryAfterSeconds !== null
+            ? `Please wait ${result.retryAfterSeconds}s before sending again.`
+            : "Please wait before sending again.";
+        setResendMessage(suffix);
+      } else {
+        setResendMessage("Could not confirm sending. Please try again.");
+      }
+      return result;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "unknown_error";
+      const isExplicitPayloadError = /Mail endpoint returned non-send payload/i.test(detail);
+      setResendMessage(
+        isExplicitPayloadError
+          ? "Could not confirm sending. Please try again."
+          : "Could not send confirmation email. Try again.",
+      );
+      throw err;
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  const joinWaitlistWithRetry = async (targetEmail: string, targetReferralCode: string | null) => {
+    const retryDelaysMs = [800, 1600];
+    let lastResult: Awaited<
+      ReturnType<typeof supabase.rpc<"join_waitlist", JoinWaitlistRow[]>>
+    > | null = null;
+
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+      const result = await supabase.rpc("join_waitlist", {
+        p_email: targetEmail,
+        p_referral_code: targetReferralCode,
+      });
+      lastResult = result;
+
+      const isTransientLoadFailed =
+        !!result.error && /TypeError:\s*Load failed/i.test(result.error.message ?? "");
+
+      if (!isTransientLoadFailed || attempt === retryDelaysMs.length) {
+        return result;
+      }
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, retryDelaysMs[attempt]);
+      });
+    }
+
+    return (
+      lastResult ?? {
+        data: null,
+        error: {
+          name: "RetryError",
+          message: "Could not join waitlist after retries.",
+        } as unknown as Awaited<
+          ReturnType<typeof supabase.rpc<"join_waitlist", JoinWaitlistRow[]>>
+        >["error"],
+      }
+    );
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -402,10 +497,7 @@ function LandingPage() {
 
     const normalizedEmail = email.trim().toLowerCase();
     const refCode = getStoredReferralCode();
-    const { data, error } = await supabase.rpc("join_waitlist", {
-      p_email: normalizedEmail,
-      p_referral_code: refCode,
-    });
+    const { data, error } = await joinWaitlistWithRetry(normalizedEmail, refCode);
 
     const row = (Array.isArray(data) ? data[0] : null) as JoinWaitlistRow | null;
 
@@ -428,13 +520,17 @@ function LandingPage() {
           email_domain: email.split("@")[1] || undefined,
         });
       } else {
+        const isLoadFailed = /TypeError:\s*Load failed/i.test(error?.message ?? "");
         setMessage(
-          error?.message
-            ? `Could not join waitlist: ${error.message}`
-            : "Something went wrong. Please try again.",
+          isLoadFailed
+            ? "Network hiccup while joining waitlist. Please try again."
+            : error?.message
+              ? `Could not join waitlist: ${error.message}`
+              : "Something went wrong. Please try again.",
         );
         track("funnel_signup_failed", {
           code: error?.code,
+          reason: isLoadFailed ? "load_failed" : undefined,
         });
       }
     } else {
@@ -466,11 +562,37 @@ function LandingPage() {
         needs_confirmation: Boolean(row.needs_confirmation),
       });
 
-      // For newly created waitlist entries, trigger confirmation mail immediately.
-      if (row.needs_confirmation && !row.already_joined) {
+      // Always allow resend while confirmation is pending, even when initial mail did not arrive.
+      const allowResendForThisSession = row.needs_confirmation;
+      setCanResendConfirmation(allowResendForThisSession);
+
+      // Trigger confirmation immediately whenever this email still needs confirmation.
+      if (row.needs_confirmation) {
         try {
-          await requestInitialConfirmationEmailWithRetry(normalizedEmail);
+          // Execute the exact same resend flow as the button, just triggered automatically.
+          let autoResult = await runResendFlow(normalizedEmail, "auto");
+          if (!autoResult.confirmedSent) {
+            const waitMs =
+              autoResult.reason === "cooldown" && autoResult.retryAfterSeconds !== null
+                ? autoResult.retryAfterSeconds * 1000 + 300
+                : 1200;
+            await new Promise<void>((resolve) => window.setTimeout(resolve, waitMs));
+            autoResult = await runResendFlow(normalizedEmail, "auto");
+          }
+          setResendMessage(
+            autoResult.confirmedSent
+              ? "Confirmation email sent."
+              : "Could not send confirmation email automatically. Please tap Resend.",
+          );
+          track("funnel_confirmation_email_auto_sent", {
+            email_domain: normalizedEmail.split("@")[1] || undefined,
+            confirmed_sent: autoResult.confirmedSent,
+          });
         } catch (mailErr) {
+          setResendMessage("Could not send confirmation email automatically. Please tap Resend.");
+          track("funnel_confirmation_email_initial_send_failed", {
+            email_domain: normalizedEmail.split("@")[1] || undefined,
+          });
           console.error("Waitlist confirmation mail trigger failed:", mailErr);
         }
       }
@@ -480,23 +602,15 @@ function LandingPage() {
 
   const handleResend = async () => {
     if (!confirmationEmail || resendLoading || resendCooldownSeconds > 0) return;
-    setResendLoading(true);
-    setResendMessage("");
-    setResendCooldown(confirmationEmail, RESEND_COOLDOWN_SECONDS);
-    setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
     try {
-      await requestConfirmationEmail(confirmationEmail);
-      setResendMessage("Sent.");
+      await runResendFlow(confirmationEmail, "button");
       track("funnel_confirmation_email_resent", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
     } catch {
-      setResendMessage("Could not send confirmation email. Try again.");
       track("funnel_confirmation_email_resend_failed", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
-    } finally {
-      setResendLoading(false);
     }
   };
 
@@ -507,6 +621,7 @@ function LandingPage() {
     setNeedsConfirmation(false);
     setWaitlistPosition(null);
     setConfirmationEmail(null);
+    setCanResendConfirmation(false);
     setReferralCode(null);
     setResendMessage("");
     setMessage("");
@@ -522,15 +637,13 @@ function LandingPage() {
     setNeedsConfirmation(false);
     setWaitlistPosition(null);
     setConfirmationEmail(null);
+    setCanResendConfirmation(false);
     setReferralCode(null);
     setResendCooldownSeconds(0);
     setResendMessage("");
     setMessage("");
     setEmail("");
   }, []);
-
-  const confirmedOnList =
-    submitted && Boolean(confirmationEmail?.trim()) && !needsConfirmation;
 
   return (
     <div className="app-container">
@@ -606,10 +719,10 @@ function LandingPage() {
                   <div className="success">
                     <p>
                       {needsConfirmation
-                        ? "Check your inbox to confirm."
+                        ? "You're on the waitlist. Check your inbox to confirm your email for feature requests and voting."
                         : "You're on the list."}
                     </p>
-                    {!needsConfirmation && waitlistPosition && !confirmedOnList ? (
+                    {waitlistPosition ? (
                       <p className="waitlist-position">
                         <strong>#{waitlistPosition}</strong>
                       </p>
@@ -618,31 +731,35 @@ function LandingPage() {
                   {needsConfirmation ? (
                     <>
                       <div className="waitlist-confirmation-actions">
-                        <button
-                          type="button"
-                          onClick={handleResend}
-                          disabled={resendLoading || resendCooldownSeconds > 0}
-                          className="resend-text-link"
-                          aria-label={
-                            resendCooldownSeconds > 0
-                              ? `Resend available in ${resendCooldownSeconds} seconds`
-                              : "Resend confirmation email"
-                          }
-                        >
-                          {resendLoading ? (
-                            <>
-                              <span className="ui-spinner ui-spinner--btn" aria-hidden />
-                              <span>Sending…</span>
-                            </>
-                          ) : resendCooldownSeconds > 0 ? (
-                            `${resendCooldownSeconds}s`
-                          ) : (
-                            "Resend"
-                          )}
-                        </button>
-                        <span className="waitlist-confirmation-actions__sep" aria-hidden>
-                          ·
-                        </span>
+                        {canResendConfirmation ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleResend}
+                              disabled={resendLoading || resendCooldownSeconds > 0}
+                              className="resend-text-link"
+                              aria-label={
+                                resendCooldownSeconds > 0
+                                  ? `Resend available in ${resendCooldownSeconds} seconds`
+                                  : "Resend confirmation email"
+                              }
+                            >
+                              {resendLoading ? (
+                                <>
+                                  <span className="ui-spinner ui-spinner--btn" aria-hidden />
+                                  <span>Sending…</span>
+                                </>
+                              ) : resendCooldownSeconds > 0 ? (
+                                `${resendCooldownSeconds}s`
+                              ) : (
+                                "Resend"
+                              )}
+                            </button>
+                            <span className="waitlist-confirmation-actions__sep" aria-hidden>
+                              ·
+                            </span>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           onClick={handleBackToEmailForm}
@@ -909,6 +1026,100 @@ function ConfirmedPage() {
                 </Link>
               </div>
             </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function UnsubscribeWaitlistPage() {
+  const token = extractConfirmationToken();
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(
+    token ? "Processing unsubscribe..." : "Invalid link.",
+  );
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!token || done) return;
+      setLoading(true);
+      try {
+        const { data, error } = await supabase.rpc("unsubscribe_waitlist_email", {
+          p_token: token,
+        });
+        if (cancelled) return;
+
+        if (error) {
+          const rpcMissing =
+            error.code === "PGRST202" ||
+            /unsubscribe_waitlist_email/i.test(error.message ?? "") ||
+            /function.*does not exist/i.test(error.message ?? "");
+          setMessage(
+            rpcMissing
+              ? "Unsubscribe is not deployed yet: RPC unsubscribe_waitlist_email is missing."
+              : "Could not unsubscribe right now. Please try again later.",
+          );
+          return;
+        }
+
+        const row = Array.isArray(data) ? data[0] : null;
+        if (!row || row.unsubscribed !== true) {
+          setMessage("Invalid or expired unsubscribe link.");
+          return;
+        }
+
+        clearWaitlistSession();
+        clearConfirmedWaitlistEmail();
+        clearReferralStatsVerifiedEmail();
+        setDone(true);
+        setMessage("You have successfully unsubscribed.");
+      } catch {
+        if (cancelled) return;
+        setMessage("Could not unsubscribe right now. Please try again later.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [done, token]);
+
+  return (
+    <div className="app-container">
+      <main className="page">
+        <section className="page-section page-section--hero">
+          <div className="page-section__inner">
+            <header className="brand">
+              <h1 className="logo">
+                <span className="logo-word">ECH</span>
+                <span className="logo-flower" aria-hidden="true">
+                  <img {...FLOWER_LOGO_IMG_PROPS} />
+                </span>
+                <span className="logo-word">O</span>
+              </h1>
+              <div className="divider"></div>
+            </header>
+            <section className="hero-text" aria-live="polite">
+              <h2>Unsubscribe</h2>
+              <div className="confirm-feedback">
+                {loading ? (
+                  <p className="confirm-feedback-loading" role="status">
+                    <span className="ui-spinner ui-spinner--lg" aria-hidden />
+                    <span>{message}</span>
+                  </p>
+                ) : (
+                  <p>{message}</p>
+                )}
+              </div>
+              <Link to="/" className="feature-request-link">
+                Home
+              </Link>
+            </section>
           </div>
         </section>
       </main>
