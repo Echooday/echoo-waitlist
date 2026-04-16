@@ -365,24 +365,27 @@ function LandingPage() {
   };
 
   const requestInitialConfirmationEmailWithRetry = async (targetEmail: string) => {
-    try {
-      await requestConfirmationEmail(targetEmail);
-      return;
-    } catch (firstErr) {
-      // Retry once after a short pause to avoid immediate backend timing/rate edge cases.
-      await sleep(1200);
+    const retryDelaysMs = [900, 1800];
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
       try {
         await requestConfirmationEmail(targetEmail);
         return;
-      } catch (secondErr) {
-        const finalError = secondErr instanceof Error ? secondErr : firstErr;
-        setResendMessage("Could not send confirmation email. Please tap Resend.");
-        track("funnel_confirmation_email_initial_send_failed", {
-          email_domain: targetEmail.split("@")[1] || undefined,
-        });
-        throw finalError;
+      } catch (error) {
+        lastError = error;
+        if (attempt < retryDelaysMs.length) {
+          await sleep(retryDelaysMs[attempt]);
+          continue;
+        }
       }
     }
+
+    setResendMessage("Could not send confirmation email. Please tap Resend.");
+    track("funnel_confirmation_email_initial_send_failed", {
+      email_domain: targetEmail.split("@")[1] || undefined,
+    });
+    throw (lastError instanceof Error ? lastError : new Error("initial confirmation send failed"));
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -463,11 +466,13 @@ function LandingPage() {
         needs_confirmation: Boolean(row.needs_confirmation),
       });
 
-      // Trigger transactional confirmation mail (best-effort).
-      if (row.needs_confirmation) {
-        requestInitialConfirmationEmailWithRetry(normalizedEmail).catch((mailErr) => {
+      // For newly created waitlist entries, trigger confirmation mail immediately.
+      if (row.needs_confirmation && !row.already_joined) {
+        try {
+          await requestInitialConfirmationEmailWithRetry(normalizedEmail);
+        } catch (mailErr) {
           console.error("Waitlist confirmation mail trigger failed:", mailErr);
-        });
+        }
       }
     }
     setLoading(false);
