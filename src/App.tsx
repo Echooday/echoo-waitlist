@@ -376,9 +376,7 @@ function LandingPage() {
         return;
       } catch (secondErr) {
         const finalError = secondErr instanceof Error ? secondErr : firstErr;
-        const detail =
-          finalError instanceof Error && finalError.message ? ` (${finalError.message})` : "";
-        setResendMessage(`Could not send confirmation email${detail}. Please tap Resend.`);
+        setResendMessage("Could not send confirmation email. Please tap Resend.");
         track("funnel_confirmation_email_initial_send_failed", {
           email_domain: targetEmail.split("@")[1] || undefined,
         });
@@ -487,10 +485,8 @@ function LandingPage() {
       track("funnel_confirmation_email_resent", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
-    } catch (mailErr) {
-      const detail =
-        mailErr instanceof Error && mailErr.message ? ` (${mailErr.message})` : "";
-      setResendMessage(`Could not send confirmation email${detail}. Try again.`);
+    } catch {
+      setResendMessage("Could not send confirmation email. Try again.");
       track("funnel_confirmation_email_resend_failed", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
