@@ -91,6 +91,12 @@ function getRemainingResendSeconds(email: string): number {
   return Math.max(0, Math.ceil((nextAllowedAtMs - Date.now()) / 1000));
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function extractConfirmationToken(): string | null {
   if (typeof window === "undefined") return null;
 
@@ -339,11 +345,46 @@ function LandingPage() {
     });
 
     if (!response.ok) {
-      throw new Error("Could not send confirmation email right now.");
+      let detail = "";
+      try {
+        const payload = await response.json();
+        if (payload && typeof payload === "object" && "error" in payload) {
+          const raw = (payload as { error?: unknown }).error;
+          if (typeof raw === "string" && raw.trim()) {
+            detail = raw.trim();
+          }
+        }
+      } catch {
+        // ignore parse failures
+      }
+      throw new Error(detail || `HTTP ${response.status}`);
     }
 
     setResendCooldown(targetEmail, RESEND_COOLDOWN_SECONDS);
     setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+  };
+
+  const requestInitialConfirmationEmailWithRetry = async (targetEmail: string) => {
+    try {
+      await requestConfirmationEmail(targetEmail);
+      return;
+    } catch (firstErr) {
+      // Retry once after a short pause to avoid immediate backend timing/rate edge cases.
+      await sleep(1200);
+      try {
+        await requestConfirmationEmail(targetEmail);
+        return;
+      } catch (secondErr) {
+        const finalError = secondErr instanceof Error ? secondErr : firstErr;
+        const detail =
+          finalError instanceof Error && finalError.message ? ` (${finalError.message})` : "";
+        setResendMessage(`Could not send confirmation email${detail}. Please tap Resend.`);
+        track("funnel_confirmation_email_initial_send_failed", {
+          email_domain: targetEmail.split("@")[1] || undefined,
+        });
+        throw finalError;
+      }
+    }
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -426,7 +467,7 @@ function LandingPage() {
 
       // Trigger transactional confirmation mail (best-effort).
       if (row.needs_confirmation) {
-        requestConfirmationEmail(normalizedEmail).catch((mailErr) => {
+        requestInitialConfirmationEmailWithRetry(normalizedEmail).catch((mailErr) => {
           console.error("Waitlist confirmation mail trigger failed:", mailErr);
         });
       }
@@ -446,8 +487,10 @@ function LandingPage() {
       track("funnel_confirmation_email_resent", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
-    } catch {
-      setResendMessage("Could not send. Try again.");
+    } catch (mailErr) {
+      const detail =
+        mailErr instanceof Error && mailErr.message ? ` (${mailErr.message})` : "";
+      setResendMessage(`Could not send confirmation email${detail}. Try again.`);
       track("funnel_confirmation_email_resend_failed", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
