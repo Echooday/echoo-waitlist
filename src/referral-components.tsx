@@ -23,6 +23,20 @@ export type DashboardStats = {
   total_confirmed_waitlist: number | null;
 };
 
+export type InitialDashboardStats = Pick<
+  DashboardStats,
+  | "invited_count"
+  | "confirmed_count"
+  | "registered_count"
+  | "rewarded_referrals"
+  | "months_granted_total"
+  | "referral_code"
+  | "waitlist_order"
+  | "leaderboard_rank"
+  | "leaderboard_size"
+  | "total_confirmed_waitlist"
+>;
+
 /** @deprecated Use DashboardStats; kept for any external imports */
 export type PipelineStats = DashboardStats;
 
@@ -150,7 +164,7 @@ function PremiumMonthsExplainModal({ open, onClose }: { open: boolean; onClose: 
         <div className="referral-info-modal-body">
           <p>
             Friends count for your waitlist stats as soon as they join the waitlist with your invite link.
-            Premium months are only earned once they register in the Echoo app.
+            Potential pro months count as soon as they confirm their email on the waitlist.
           </p>
           <ul>
             <li>
@@ -164,8 +178,7 @@ function PremiumMonthsExplainModal({ open, onClose }: { open: boolean; onClose: 
             </li>
           </ul>
           <p className="referral-info-modal-note">
-            A referral grants premium only when your invitee reaches <strong>registered</strong> in the app; if friends stay on
-            the waitlist only, they still show up in your stats, but no premium is granted yet. Each person can only grant the reward once.
+            This potential value is based on invitees who are on the waitlist and have confirmed their email. Each person only counts once.
           </p>
         </div>
       </div>
@@ -255,12 +268,14 @@ function ReferralPipelineStatsInner({
   supabase,
   email,
   referralCodeOverride,
+  initialStats,
 }: {
   supabase: SupabaseClient;
   email: string;
   referralCodeOverride?: string | null;
+  initialStats?: InitialDashboardStats | null;
 }) {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(initialStats ?? null);
   const [loading, setLoading] = useState(false);
   const [premiumInfoOpen, setPremiumInfoOpen] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -273,25 +288,32 @@ function ReferralPipelineStatsInner({
     void (async () => {
       try {
         let row: Record<string, unknown> | null = null;
-        const dash = await supabase.rpc("referral_my_dashboard_stats", { p_email: e });
-        if (!cancelled && !dash.error) {
-          const dashRows = normalizeRpcRows(dash.data);
-          const first = dashRows[0];
-          if (first && !isDashboardAbsentSentinel(first)) {
-            row = first;
+        const attemptDelaysMs = [0, 250, 800, 1600];
+        for (let attempt = 0; attempt < attemptDelaysMs.length && !cancelled && !row; attempt += 1) {
+          if (attemptDelaysMs[attempt] > 0) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, attemptDelaysMs[attempt]));
           }
-        }
-        if (!cancelled && !row) {
-          const pipe = await supabase.rpc("referral_pipeline_stats", { p_email: e });
-          if (!pipe.error) {
-            const pipeRows = normalizeRpcRows(pipe.data);
-            const raw = pipeRows[0];
-            if (raw) {
-              row = {
-                ...raw,
-                leaderboard_rank: null,
-                leaderboard_size: null,
-              };
+
+          const dash = await supabase.rpc("referral_my_dashboard_stats", { p_email: e });
+          if (!cancelled && !dash.error) {
+            const dashRows = normalizeRpcRows(dash.data);
+            const first = dashRows[0];
+            if (first && !isDashboardAbsentSentinel(first)) {
+              row = first;
+            }
+          }
+          if (!cancelled && !row) {
+            const pipe = await supabase.rpc("referral_pipeline_stats", { p_email: e });
+            if (!pipe.error) {
+              const pipeRows = normalizeRpcRows(pipe.data);
+              const raw = pipeRows[0];
+              if (raw && !isDashboardAbsentSentinel(raw)) {
+                row = {
+                  ...raw,
+                  leaderboard_rank: null,
+                  leaderboard_size: null,
+                };
+              }
             }
           }
         }
@@ -336,19 +358,14 @@ function ReferralPipelineStatsInner({
   const potentialMonths = stats
     ? Math.max(
         stats.months_granted_total,
-        referralMonthsFromQualifiedCount(stats.registered_count),
+        referralMonthsFromQualifiedCount(stats.confirmed_count),
       )
     : 0;
   const potentialMonthsCapped = Math.min(24, potentialMonths);
 
   return (
     <div className="referral-pipeline-card">
-      {loading ? (
-        <p className="referral-pipeline-loading" role="status">
-          <span className="ui-spinner ui-spinner--btn" aria-hidden />
-          Loading…
-        </p>
-      ) : stats ? (
+      {stats ? (
         <>
           <dl className="referral-your-stats-summary">
             <div className="referral-your-stats-summary-row">
@@ -400,7 +417,18 @@ function ReferralPipelineStatsInner({
             />
             <PremiumMonthsExplainModal open={premiumInfoOpen} onClose={() => setPremiumInfoOpen(false)} />
           </div>
+          {loading ? (
+            <p className="referral-pipeline-loading" role="status">
+              <span className="ui-spinner ui-spinner--btn" aria-hidden />
+              Refreshing…
+            </p>
+          ) : null}
         </>
+      ) : loading ? (
+        <p className="referral-pipeline-loading" role="status">
+          <span className="ui-spinner ui-spinner--btn" aria-hidden />
+          Loading…
+        </p>
       ) : (
         <div className="referral-pipeline-empty">
           <p>Could not load stats.</p>
@@ -425,11 +453,13 @@ export function ReferralPersonalDashboard({
   supabase,
   emailGuess,
   referralCodeOverride,
+  initialStats,
   onResetLanding,
 }: {
   supabase: SupabaseClient;
   emailGuess: string | null | undefined;
   referralCodeOverride?: string | null;
+  initialStats?: InitialDashboardStats | null;
   onResetLanding?: () => void;
 }) {
   const [inputEmail, setInputEmail] = useState(() => emailGuess?.trim().toLowerCase() ?? "");
@@ -439,14 +469,14 @@ export function ReferralPersonalDashboard({
   const [leaveLoading, setLeaveLoading] = useState(false);
   const [unlockedEmail, setUnlockedEmail] = useState<string | null>(() => {
     const g = emailGuess?.trim().toLowerCase() ?? "";
-    return g && isReferralStatsVerifiedForEmail(g) ? g : null;
+    return g && (isReferralStatsVerifiedForEmail(g) || Boolean(emailGuess?.trim())) ? g : null;
   });
 
   useEffect(() => {
     const g = emailGuess?.trim().toLowerCase() ?? "";
     const timer = window.setTimeout(() => {
       if (g) setInputEmail(g);
-      if (g && isReferralStatsVerifiedForEmail(g)) {
+      if (g) {
         setUnlockedEmail(g);
       }
     }, 0);
@@ -540,6 +570,7 @@ export function ReferralPersonalDashboard({
             supabase={supabase}
             email={unlockedEmail}
             referralCodeOverride={referralCodeOverride}
+            initialStats={initialStats}
           />
         ) : !showInviteOnly ? (
           <div className="referral-stats-gate">

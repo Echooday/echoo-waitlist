@@ -24,7 +24,7 @@ import {
 } from "./analytics";
 import { PostHogPageviews } from "./posthog-pageviews";
 import { FeatureRequestsPage } from "./modules/feature-requests";
-import { ReferralPersonalDashboard } from "./referral-components";
+import { ReferralPersonalDashboard, type InitialDashboardStats } from "./referral-components";
 import {
   captureReferralFromUrl,
   clearConfirmedWaitlistEmail,
@@ -52,11 +52,28 @@ const FLOWER_LOGO_IMG_PROPS: ImgHTMLAttributes<HTMLImageElement> = {
 
 type JoinWaitlistRow = {
   waitlist_position: number | null;
+  total_waitlist_count: number | null;
   status: string;
   already_joined: boolean;
   needs_confirmation: boolean;
   referral_code: string | null;
 };
+
+type ExistingDashboardSnapshot = {
+  waitlistPosition: number | null;
+  totalWaitlistCount: number | null;
+  referralCode: string | null;
+};
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toOptionalReferralCode(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
+}
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const RESEND_STORAGE_PREFIX = "echoo_waitlist_resend_next_at:";
@@ -222,6 +239,7 @@ function App() {
 
 function LandingPage() {
   const initialWaitlist = readWaitlistSession();
+  const initialWaitlistEmail = initialWaitlist?.email?.trim().toLowerCase() ?? null;
   const [email, setEmail] = useState(initialWaitlist?.email ?? "");
   const [submitted, setSubmitted] = useState(!!initialWaitlist);
   const [waitlistPosition, setWaitlistPosition] = useState<number | null>(
@@ -235,10 +253,29 @@ function LandingPage() {
   const [confirmationEmail, setConfirmationEmail] = useState<string | null>(
     initialWaitlist?.email ?? null,
   );
-  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(
+    initialWaitlist?.needsConfirmation ?? false,
+  );
   const [referralCode, setReferralCode] = useState<string | null>(
     initialWaitlist?.referralCode ?? null,
   );
+  const [initialDashboardStats, setInitialDashboardStats] = useState<InitialDashboardStats | null>(
+    initialWaitlist?.email
+      ? {
+          invited_count: 0,
+          confirmed_count: 0,
+          registered_count: 0,
+          rewarded_referrals: 0,
+          months_granted_total: 0,
+          referral_code: initialWaitlist?.referralCode ?? null,
+          waitlist_order: initialWaitlist?.waitlistPosition ?? null,
+          leaderboard_rank: null,
+          leaderboard_size: null,
+          total_confirmed_waitlist: initialWaitlist?.waitlistPosition ?? null,
+        }
+      : null,
+  );
+  const [statsReady, setStatsReady] = useState(Boolean(initialWaitlist?.email));
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
@@ -483,6 +520,51 @@ function LandingPage() {
     );
   };
 
+  const loadExistingDashboardSnapshot = useCallback(
+    async (targetEmail: string): Promise<ExistingDashboardSnapshot | null> => {
+      const dash = await supabase.rpc("referral_my_dashboard_stats", { p_email: targetEmail });
+      if (dash.error) return null;
+      const row = Array.isArray(dash.data) ? dash.data[0] : dash.data;
+      if (!row || typeof row !== "object") return null;
+      const record = row as Record<string, unknown>;
+      return {
+        waitlistPosition: toOptionalNumber(record.waitlist_order ?? record.waitlistOrder),
+        totalWaitlistCount: toOptionalNumber(
+          record.total_confirmed_waitlist ?? record.totalConfirmedWaitlist,
+        ),
+        referralCode: toOptionalReferralCode(record.referral_code),
+      };
+    },
+    [],
+  );
+
+  const queueStatsReveal = useCallback(() => {
+    setStatsReady(false);
+    window.setTimeout(() => {
+      setStatsReady(true);
+    }, 350);
+  }, []);
+
+  const buildInitialDashboardStats = useCallback(
+    (
+      waitlistPosition: number | null | undefined,
+      totalWaitlistCount: number | null | undefined,
+      nextReferralCode: string | null | undefined,
+    ): InitialDashboardStats => ({
+      invited_count: 0,
+      confirmed_count: 0,
+      registered_count: 0,
+      rewarded_referrals: 0,
+      months_granted_total: 0,
+      referral_code: nextReferralCode ?? null,
+      waitlist_order: waitlistPosition ?? null,
+      leaderboard_rank: null,
+      leaderboard_size: null,
+      total_confirmed_waitlist: totalWaitlistCount ?? waitlistPosition ?? null,
+    }),
+    [],
+  );
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
@@ -515,7 +597,60 @@ function LandingPage() {
 
       // Prüfen, ob die Email bereits existiert (PostgREST error code 23505)
       if (error?.code === "23505") {
-        setMessage("Already on the list.");
+        const existingSessionMatches =
+          initialWaitlistEmail !== null && initialWaitlistEmail === normalizedEmail;
+        let duplicateNeedsConfirmation = existingSessionMatches
+          ? !!initialWaitlist?.needsConfirmation
+          : true;
+        let duplicateWaitlistPosition = existingSessionMatches
+          ? initialWaitlist?.waitlistPosition ?? null
+          : null;
+        let duplicateReferralCode = existingSessionMatches
+          ? initialWaitlist?.referralCode ?? null
+          : null;
+        let duplicateTotalWaitlistCount = duplicateWaitlistPosition;
+
+        if (!existingSessionMatches) {
+          const [{ data: isConfirmed }, dashboardSnapshot] = await Promise.all([
+            supabase.rpc("waitlist_email_exists", { p_email: normalizedEmail }),
+            loadExistingDashboardSnapshot(normalizedEmail),
+          ]);
+
+          if (isConfirmed === true) {
+            duplicateNeedsConfirmation = false;
+            duplicateWaitlistPosition = dashboardSnapshot?.waitlistPosition ?? null;
+            duplicateReferralCode = dashboardSnapshot?.referralCode ?? null;
+            duplicateTotalWaitlistCount =
+              dashboardSnapshot?.totalWaitlistCount ?? dashboardSnapshot?.waitlistPosition ?? null;
+            persistConfirmedWaitlistEmail(normalizedEmail);
+            markReferralStatsVerifiedEmail(normalizedEmail);
+          }
+        }
+
+        setSubmitted(true);
+        setConfirmationEmail(normalizedEmail);
+        setNeedsConfirmation(duplicateNeedsConfirmation);
+        setWaitlistPosition(duplicateWaitlistPosition);
+        setReferralCode(duplicateReferralCode);
+        setInitialDashboardStats(
+          buildInitialDashboardStats(
+            duplicateWaitlistPosition,
+            duplicateTotalWaitlistCount,
+            duplicateReferralCode,
+          ),
+        );
+        setCanResendConfirmation(duplicateNeedsConfirmation);
+        setResendMessage("");
+        setMessage("");
+        persistWaitlistSession({
+          email: normalizedEmail,
+          needsConfirmation: duplicateNeedsConfirmation,
+          waitlistPosition: duplicateWaitlistPosition,
+          confirmationMailSent:
+            existingSessionMatches ? Boolean(initialWaitlist?.confirmationMailSent) : false,
+          referralCode: duplicateReferralCode,
+        });
+        queueStatsReveal();
         track("funnel_signup_duplicate", {
           email_domain: email.split("@")[1] || undefined,
         });
@@ -544,13 +679,18 @@ function LandingPage() {
           ? row.referral_code.trim().toLowerCase()
           : null;
       setReferralCode(rc);
+      setInitialDashboardStats(
+        buildInitialDashboardStats(row.waitlist_position, row.total_waitlist_count, rc),
+      );
       setResendMessage("");
       persistWaitlistSession({
         email: normalizedEmail,
         needsConfirmation: !!row.needs_confirmation,
         waitlistPosition: row.waitlist_position ?? null,
+        confirmationMailSent: !row.needs_confirmation,
         referralCode: rc,
       });
+      queueStatsReveal();
       if (!row.needs_confirmation) {
         persistConfirmedWaitlistEmail(normalizedEmail);
         markReferralStatsVerifiedEmail(normalizedEmail);
@@ -584,6 +724,15 @@ function LandingPage() {
               ? "Confirmation email sent."
               : "Could not send confirmation email automatically. Please tap Resend.",
           );
+          if (autoResult.confirmedSent) {
+            persistWaitlistSession({
+              email: normalizedEmail,
+              needsConfirmation: true,
+              waitlistPosition: row.waitlist_position ?? null,
+              confirmationMailSent: true,
+              referralCode: rc,
+            });
+          }
           track("funnel_confirmation_email_auto_sent", {
             email_domain: normalizedEmail.split("@")[1] || undefined,
             confirmed_sent: autoResult.confirmedSent,
@@ -603,7 +752,16 @@ function LandingPage() {
   const handleResend = async () => {
     if (!confirmationEmail || resendLoading || resendCooldownSeconds > 0) return;
     try {
-      await runResendFlow(confirmationEmail, "button");
+      const result = await runResendFlow(confirmationEmail, "button");
+      if (result.confirmedSent) {
+        persistWaitlistSession({
+          email: confirmationEmail,
+          needsConfirmation: true,
+          waitlistPosition,
+          confirmationMailSent: true,
+          referralCode,
+        });
+      }
       track("funnel_confirmation_email_resent", {
         email_domain: confirmationEmail.split("@")[1] || undefined,
       });
@@ -623,6 +781,8 @@ function LandingPage() {
     setConfirmationEmail(null);
     setCanResendConfirmation(false);
     setReferralCode(null);
+    setInitialDashboardStats(null);
+    setStatsReady(false);
     setResendMessage("");
     setMessage("");
     setEmail(previous);
@@ -639,6 +799,8 @@ function LandingPage() {
     setConfirmationEmail(null);
     setCanResendConfirmation(false);
     setReferralCode(null);
+    setInitialDashboardStats(null);
+    setStatsReady(false);
     setResendCooldownSeconds(0);
     setResendMessage("");
     setMessage("");
@@ -719,8 +881,8 @@ function LandingPage() {
                   <div className="success">
                     <p>
                       {needsConfirmation
-                        ? "You're on the waitlist. Check your inbox to confirm your email for feature requests and voting."
-                        : "You're on the list."}
+                        ? "You are on the waitlist. Please confirm your mail to receive your referral link and to access feature request."
+                        : "You are on the waitlist for echoo."}
                     </p>
                     {waitlistPosition ? (
                       <p className="waitlist-position">
@@ -774,11 +936,12 @@ function LandingPage() {
                 </div>
               )}
 
-              {submitted && confirmationEmail && !needsConfirmation ? (
+              {submitted && confirmationEmail && statsReady ? (
                 <ReferralPersonalDashboard
                   supabase={supabase}
                   emailGuess={confirmationEmail}
                   referralCodeOverride={referralCode}
+                  initialStats={initialDashboardStats}
                   onResetLanding={resetLandingFromStats}
                 />
               ) : null}
@@ -1003,6 +1166,21 @@ function ConfirmedPage() {
     emailParam?.trim().toLowerCase() || sessionSnap?.email || null;
   const referralDashboardRef =
     refParam?.trim().toLowerCase() || sessionSnap?.referralCode || null;
+  const confirmedInitialStats: InitialDashboardStats | null =
+    referralDashboardEmail || referralDashboardRef || waitlistPosition !== null
+      ? {
+          invited_count: 0,
+          confirmed_count: 0,
+          registered_count: 0,
+          rewarded_referrals: 0,
+          months_granted_total: 0,
+          referral_code: referralDashboardRef,
+          waitlist_order: waitlistPosition,
+          leaderboard_rank: null,
+          leaderboard_size: null,
+          total_confirmed_waitlist: waitlistPosition,
+        }
+      : null;
 
   return (
     <div className="app-container">
@@ -1016,6 +1194,7 @@ function ConfirmedPage() {
                 supabase={supabase}
                 emailGuess={referralDashboardEmail}
                 referralCodeOverride={referralDashboardRef}
+                initialStats={confirmedInitialStats}
               />
               <div className="landing-links-row">
                 <Link to={featureRequestsTo} className="feature-request-link">

@@ -8,6 +8,7 @@ export type WaitlistSessionSnapshot = {
   email: string;
   needsConfirmation: boolean;
   waitlistPosition: number | null;
+  confirmationMailSent?: boolean;
   referralCode?: string | null;
 };
 
@@ -27,6 +28,7 @@ export function readWaitlistSession(): WaitlistSessionSnapshot | null {
         typeof parsed.waitlistPosition === "number" && Number.isFinite(parsed.waitlistPosition)
           ? parsed.waitlistPosition
           : null,
+      confirmationMailSent: Boolean(parsed.confirmationMailSent),
       referralCode: rc && rc.length > 0 ? rc : null,
     };
   } catch {
@@ -42,6 +44,7 @@ export function persistWaitlistSession(snapshot: WaitlistSessionSnapshot): void 
         email: snapshot.email.trim().toLowerCase(),
         needsConfirmation: snapshot.needsConfirmation,
         waitlistPosition: snapshot.waitlistPosition,
+        confirmationMailSent: snapshot.confirmationMailSent ?? false,
         referralCode: snapshot.referralCode ?? null,
       }),
     );
