@@ -38,6 +38,7 @@ import {
   persistWaitlistSession,
   readWaitlistSession,
 } from "./waitlist-session";
+import { maskWaitlistToken, waitlistDebug } from "./waitlist-debug";
 
 /** Raster assets under `public/flower-meadow/` (generated from `src/assets/flower_meadow.png`). */
 const FLOWER_LOGO_IMG_PROPS: ImgHTMLAttributes<HTMLImageElement> = {
@@ -1064,6 +1065,16 @@ async function rpcConfirmWaitlistEmailDeduped(token: string): Promise<ConfirmWai
   if (existing) return existing;
 
   const task = (async (): Promise<ConfirmWaitlistRpcOutcome> => {
+    let supabaseHost: string | null = null;
+    try {
+      supabaseHost = new URL(supabaseProjectUrl).host;
+    } catch {
+      supabaseHost = null;
+    }
+    waitlistDebug("confirm_waitlist_email:request", {
+      token: maskWaitlistToken(token),
+      supabaseHost,
+    });
     const { data, error } = await supabase.rpc("confirm_waitlist_email", {
       p_token: token,
     });
@@ -1074,6 +1085,14 @@ async function rpcConfirmWaitlistEmailDeduped(token: string): Promise<ConfirmWai
       (err.code === "PGRST202" ||
         /confirm_waitlist_email/i.test(err.message ?? "") ||
         /function.*does not exist/i.test(err.message ?? ""));
+    waitlistDebug("confirm_waitlist_email:response", {
+      rowCount: rows.length,
+      rpcMissing,
+      errorCode: err?.code ?? null,
+      errorMessage: err?.message ?? null,
+      dataShape:
+        data == null ? "null" : Array.isArray(data) ? `array(${data.length})` : typeof data,
+    });
     return { rows, error: err, rpcMissing };
   })();
 
@@ -1096,6 +1115,26 @@ function ConfirmWaitlistPage() {
   const [position, setPosition] = useState<number | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
+  useEffect(() => {
+    let supabaseHost: string | null = null;
+    try {
+      supabaseHost = new URL(supabaseProjectUrl).host;
+    } catch {
+      supabaseHost = null;
+    }
+    waitlistDebug("confirm page:context", {
+      hasToken: Boolean(token),
+      token: token ? maskWaitlistToken(token) : null,
+      origin: typeof window !== "undefined" ? window.location.origin : null,
+      pathname: typeof window !== "undefined" ? window.location.pathname : null,
+      hashPath: typeof window !== "undefined" ? window.location.hash.split("?")[0] || null : null,
+      hasSearchParams: Boolean(
+        typeof window !== "undefined" && window.location.search && window.location.search.length > 1,
+      ),
+      supabaseHost,
+    });
+  }, [token]);
+
   const handleConfirm = useCallback(async () => {
     if (!token || confirmed) return;
     if (confirmRunRef.current) return;
@@ -1107,6 +1146,9 @@ function ConfirmWaitlistPage() {
       const { rows, error, rpcMissing } = await rpcConfirmWaitlistEmailDeduped(token);
 
       if (rpcMissing) {
+        waitlistDebug("confirm page:rpc_missing", {
+          token: token ? maskWaitlistToken(token) : null,
+        });
         setMessage(
           "Confirmation is not deployed yet: RPC confirm_waitlist_email is missing.",
         );
@@ -1121,6 +1163,12 @@ function ConfirmWaitlistPage() {
           details: error?.details,
           hint: error?.hint,
           rowCount: rows.length,
+        });
+        waitlistDebug("confirm page:failure", {
+          token: token ? maskWaitlistToken(token) : null,
+          rowCount: rows.length,
+          errorCode: error?.code ?? null,
+          errorMessage: error?.message ?? null,
         });
         setMessage("Confirmation failed. Please retry from the latest email link.");
         track("funnel_confirmation_failed", { reason: "rpc_or_data_error", code: error?.code });
@@ -1153,6 +1201,13 @@ function ConfirmWaitlistPage() {
         waitlist_position: rowPos ?? undefined,
         has_referral_code: Boolean(refCode),
       });
+      waitlistDebug("confirm page:success", {
+        waitlistPosition: rowPos,
+        hasReferralCode: Boolean(refCode),
+        emailDomain: confirmedEmail.includes("@")
+          ? confirmedEmail.split("@")[1]?.toLowerCase()
+          : null,
+      });
       const qs = new URLSearchParams();
       if (rowPos !== null) {
         qs.set("position", String(rowPos));
@@ -1176,6 +1231,11 @@ function ConfirmWaitlistPage() {
             ? ` (network: blocked or wrong Supabase URL — check VITE_SUPABASE_URL has no /rest/v1, ad blockers, VPN)`
             : ` (${err.message})`
           : "";
+      waitlistDebug("confirm page:exception", {
+        token: token ? maskWaitlistToken(token) : null,
+        isNetwork,
+        message: err instanceof Error ? err.message : String(err),
+      });
       setMessage(`Could not confirm right now${detail}.`);
       track("funnel_confirmation_failed", { reason: "network_or_runtime_error" });
     } finally {
