@@ -213,6 +213,106 @@ function extractConfirmationToken(): string | null {
   return extractTokenFromUrlLikeString(window.location.href);
 }
 
+function supabaseHostForConfirmUi(): string | null {
+  try {
+    return new URL(supabaseProjectUrl).host;
+  } catch {
+    return null;
+  }
+}
+
+function truncateForConfirmUi(s: string | null | undefined, max: number): string {
+  if (s == null || s === "") return "";
+  const t = String(s);
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+/**
+ * German on-screen explanation when confirmation fails (no secrets; token length only).
+ */
+function formatGermanConfirmFailureMessage(opts: {
+  kind: "rpc_missing" | "empty_rows" | "postgrest" | "network" | "runtime";
+  supabaseHost: string | null;
+  postgrest?: { code?: string; message?: string; details?: string; hint?: string } | null;
+  runtimeMessage?: string;
+  tokenLength?: number;
+}): string {
+  const host = opts.supabaseHost ?? "—";
+  const tokenHint =
+    opts.tokenLength != null ? `Token-Länge im Link: ${opts.tokenLength} Zeichen.` : null;
+
+  switch (opts.kind) {
+    case "rpc_missing":
+      return [
+        "Bestätigung nicht möglich: Server-Funktion fehlt.",
+        "",
+        "Technisch: RPC „confirm_waitlist_email“ ist nicht erreichbar oder nicht deployed.",
+        `Supabase-Host in dieser App: ${host}`,
+        tokenHint,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    case "empty_rows":
+      return [
+        "Bestätigung fehlgeschlagen: Zu diesem Link gibt es keinen passenden Eintrag.",
+        "",
+        "Mögliche Ursachen:",
+        "• Alter Link – neueste E-Mail nutzen oder auf der Waitlist „Erneut senden“.",
+        "• Abmeldung – dann neu eintragen.",
+        "• Falsches Supabase-Projekt: Diese Seite wurde mit einer anderen VITE_SUPABASE_URL gebaut als das Projekt, das die Mail verschickt.",
+        "",
+        `Supabase-Host in dieser App: ${host}`,
+        tokenHint,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    case "postgrest": {
+      const e = opts.postgrest;
+      const code = e?.code ? String(e.code) : "—";
+      const msg = truncateForConfirmUi(e?.message, 320) || "—";
+      const details = truncateForConfirmUi(e?.details, 220);
+      const hint = truncateForConfirmUi(e?.hint, 220);
+      const lines = [
+        "Bestätigung fehlgeschlagen: Datenbank hat einen Fehler gemeldet.",
+        "",
+        `Fehlercode: ${code}`,
+        `Meldung: ${msg}`,
+      ];
+      if (details) lines.push(`Details: ${details}`);
+      if (hint) lines.push(`Hinweis: ${hint}`);
+      lines.push("", `Supabase-Host in dieser App: ${host}`);
+      if (tokenHint) lines.push(tokenHint);
+      return lines.join("\n");
+    }
+    case "network":
+      return [
+        "Bestätigung derzeit nicht möglich (Netzwerk).",
+        "",
+        "Typisch: Adblocker, VPN, Firmen-Firewall oder falsche Supabase-URL (ohne /rest/v1).",
+        "",
+        `Supabase-Host in dieser App: ${host}`,
+        tokenHint,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    case "runtime": {
+      const tech = truncateForConfirmUi(opts.runtimeMessage, 400);
+      return [
+        "Bestätigung fehlgeschlagen: unerwarteter Fehler in der App.",
+        "",
+        tech ? `Technisch: ${tech}` : "",
+        "",
+        `Supabase-Host in dieser App: ${host}`,
+        tokenHint,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+    default:
+      return "Bestätigung fehlgeschlagen.";
+  }
+}
+
 const SHOWCASE_FALLBACK_SLIDES = [
   { image: "/mockups/record-left.png", imageAlt: "Echoo app: record" },
 ] as const;
@@ -1161,12 +1261,7 @@ function ConfirmWaitlistPage() {
       const { rows, error, rpcMissing } = await rpcConfirmWaitlistEmailDeduped(token);
 
       if (rpcMissing) {
-        let supabaseHost: string | null = null;
-        try {
-          supabaseHost = new URL(supabaseProjectUrl).host;
-        } catch {
-          supabaseHost = null;
-        }
+        const supabaseHost = supabaseHostForConfirmUi();
         logWaitlistConfirmationFailure({
           failureKind: "rpc_not_deployed",
           token: token ? maskWaitlistToken(token) : null,
@@ -1175,19 +1270,18 @@ function ConfirmWaitlistPage() {
           nextSteps: "Deploy migration with confirm_waitlist_email and grant execute to anon.",
         });
         setMessage(
-          "Confirmation is not deployed yet: RPC confirm_waitlist_email is missing.",
+          formatGermanConfirmFailureMessage({
+            kind: "rpc_missing",
+            supabaseHost,
+            tokenLength: token?.length,
+          }),
         );
         track("funnel_confirmation_failed", { reason: "rpc_missing" });
         return;
       }
 
       if (error || rows.length === 0) {
-        let supabaseHost: string | null = null;
-        try {
-          supabaseHost = new URL(supabaseProjectUrl).host;
-        } catch {
-          supabaseHost = null;
-        }
+        const supabaseHost = supabaseHostForConfirmUi();
         const failureKind = error ? "postgrest_error" : "empty_rpc_rows";
         logWaitlistConfirmationFailure({
           failureKind,
@@ -1204,7 +1298,14 @@ function ConfirmWaitlistPage() {
               ? "No row matched token (expired/resend, unsubscribe, or VITE_SUPABASE_URL points at another project)."
               : "See PostgREST error fields; check RLS, grants, and network.",
         });
-        setMessage("Confirmation failed. Please retry from the latest email link.");
+        setMessage(
+          formatGermanConfirmFailureMessage({
+            kind: error ? "postgrest" : "empty_rows",
+            supabaseHost,
+            postgrest: error,
+            tokenLength: token?.length,
+          }),
+        );
         track("funnel_confirmation_failed", { reason: "rpc_or_data_error", code: error?.code });
         return;
       }
@@ -1259,18 +1360,7 @@ function ConfirmWaitlistPage() {
         err instanceof TypeError &&
         typeof err.message === "string" &&
         /failed to fetch|networkerror|load failed/i.test(err.message);
-      const detail =
-        err instanceof Error && err.message
-          ? isNetwork
-            ? ` (network: blocked or wrong Supabase URL — check VITE_SUPABASE_URL has no /rest/v1, ad blockers, VPN)`
-            : ` (${err.message})`
-          : "";
-      let supabaseHost: string | null = null;
-      try {
-        supabaseHost = new URL(supabaseProjectUrl).host;
-      } catch {
-        supabaseHost = null;
-      }
+      const supabaseHost = supabaseHostForConfirmUi();
       logWaitlistConfirmationFailure({
         failureKind: "runtime_or_network",
         isNetwork,
@@ -1282,7 +1372,14 @@ function ConfirmWaitlistPage() {
           ? "Check VITE_SUPABASE_URL (no /rest/v1), ad blockers, VPN, CORS."
           : "Unexpected error during confirm; see message.",
       });
-      setMessage(`Could not confirm right now${detail}.`);
+      setMessage(
+        formatGermanConfirmFailureMessage({
+          kind: isNetwork ? "network" : "runtime",
+          supabaseHost,
+          runtimeMessage: err instanceof Error ? err.message : String(err),
+          tokenLength: token?.length,
+        }),
+      );
       track("funnel_confirmation_failed", { reason: "network_or_runtime_error" });
     } finally {
       setLoading(false);
@@ -1320,7 +1417,7 @@ function ConfirmWaitlistPage() {
                     <span>{message}</span>
                   </p>
                 ) : (
-                  <p>{message}</p>
+                  <p className="confirm-feedback-message">{message}</p>
                 )}
               </div>
               {!loading && position ? (
