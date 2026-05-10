@@ -15,29 +15,35 @@
   margin: 0 auto;
   text-align: left;
   color: var(--text-soft);
-  font-size: 0.95rem;
+  font-size: 1.0625rem;
   line-height: 1.65;
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .legal-prose__title {
   margin: 0 0 0.35rem;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: 600;
   color: var(--text-main);
   letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .legal-prose__meta {
   margin: 0 0 1.75rem;
-  font-size: 0.88rem;
+  font-size: 0.8125rem;
   color: var(--muted);
+  line-height: 1.45;
 }
 
 .legal-prose h3 {
   margin: 1.75rem 0 0.65rem;
-  font-size: 1.08rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--text-main);
+  letter-spacing: 0.01em;
+  line-height: 1.35;
 }
 
 .legal-prose p {
