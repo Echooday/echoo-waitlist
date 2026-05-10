@@ -24,6 +24,7 @@ import {
 } from "./analytics";
 import { PostHogPageviews } from "./posthog-pageviews";
 import { FeatureRequestsPage } from "./modules/feature-requests";
+import { PrivacyPage, TermsPage } from "./legal-pages";
 import { ReferralPersonalDashboard, type InitialDashboardStats } from "./referral-components";
 import { normalizeRpcRows } from "./normalize-rpc-rows";
 import {
@@ -432,6 +433,8 @@ function App() {
           path="/feature-requests"
           element={<FeatureRequestsPage supabase={supabase} source="waitlist" backTo="/" />}
         />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
       </Routes>
     </HashRouter>
   );
@@ -1169,6 +1172,18 @@ function LandingPage() {
         <div className="page-footer__inner">
           <span>Built with love</span>
           <span className="dot">♥</span>
+          <span className="page-footer__sep" aria-hidden>
+            ·
+          </span>
+          <Link to="/privacy" className="page-footer__legal">
+            Privacy
+          </Link>
+          <span className="page-footer__sep" aria-hidden>
+            ·
+          </span>
+          <Link to="/terms" className="page-footer__legal">
+            Terms
+          </Link>
         </div>
       </footer>
     </div>

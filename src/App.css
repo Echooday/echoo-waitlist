@@ -250,9 +250,26 @@ body {
 
 .page-footer__inner {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+.page-footer__sep {
+  opacity: 0.55;
+  user-select: none;
+}
+
+.page-footer__legal {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.page-footer__legal:hover {
+  color: var(--primary);
 }
 
 .brand {

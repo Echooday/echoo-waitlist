@@ -2,6 +2,18 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/privacy",
+      "destination": "/#/privacy",
+      "permanent": false
+    },
+    {
+      "source": "/terms",
+      "destination": "/#/terms",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
