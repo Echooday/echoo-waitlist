@@ -42,13 +42,13 @@ function LegalShell({
                   Home
                 </Link>
                 {" · "}
-                <Link to="/privacy" className="feature-request-link">
+                <a href="/privacy" className="feature-request-link">
                   Privacy
-                </Link>
+                </a>
                 {" · "}
-                <Link to="/terms" className="feature-request-link">
+                <a href="/terms" className="feature-request-link">
                   Terms
-                </Link>
+                </a>
               </p>
               {children}
             </article>

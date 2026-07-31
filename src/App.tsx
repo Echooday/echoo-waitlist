@@ -1175,15 +1175,15 @@ function LandingPage() {
           <span className="page-footer__sep" aria-hidden>
             ·
           </span>
-          <Link to="/privacy" className="page-footer__legal">
+          <a href="/privacy" className="page-footer__legal">
             Privacy
-          </Link>
+          </a>
           <span className="page-footer__sep" aria-hidden>
             ·
           </span>
-          <Link to="/terms" className="page-footer__legal">
+          <a href="/terms" className="page-footer__legal">
             Terms
-          </Link>
+          </a>
         </div>
       </footer>
     </div>

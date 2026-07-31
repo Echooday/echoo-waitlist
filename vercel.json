@@ -2,16 +2,14 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "redirects": [
+  "rewrites": [
     {
       "source": "/privacy",
-      "destination": "/#/privacy",
-      "permanent": false
+      "destination": "/privacy.html"
     },
     {
       "source": "/terms",
-      "destination": "/#/terms",
-      "permanent": false
+      "destination": "/terms.html"
     }
   ],
   "headers": [
